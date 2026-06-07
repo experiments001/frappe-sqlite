@@ -32,8 +32,10 @@ def seed_site_if_missing() -> None:
         return
 
     root = bundle_root()
-    # Try frozen path first (resources at bundle root), then dev path
+    # Try frozen path first (resources at bundle root), then dev paths
     seed_root = root / "resources" / "seed_site" / "sites"
+    if not seed_root.exists():
+        seed_root = root / "desktop" / "runtime" / "resources" / "seed_site" / "sites"
     if not seed_root.exists():
         seed_root = root / "desktop_runtime" / "resources" / "seed_site" / "sites"
 

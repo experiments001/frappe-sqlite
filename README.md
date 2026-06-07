@@ -1,25 +1,44 @@
-# Frappe SQLite Desktop
+# Frappe SQLite
 
-Host-native macOS proof of concept for running Frappe with SQLite through a Tauri shell and PyInstaller sidecar.
+Frappe-compatible fork with optional SQLite support and optional host-native desktop packaging.
 
-The desktop app keeps executable code inside the `.app` bundle and stores mutable site data under macOS Application Support:
+This repository keeps the upstream Frappe layout intact. MariaDB/PostgreSQL remain the normal defaults. SQLite is an opt-in runtime profile selected through site config or environment config.
+
+## SQLite Profile
+
+Phase 1 local profile:
+
+```json
+{
+  "db_type": "sqlite",
+  "cache_backend": "local",
+  "queue_backend": "sync",
+  "realtime_backend": "noop",
+  "pause_scheduler": 1
+}
+```
+
+SQLite runtime code lives in normal Frappe paths, mainly:
 
 ```text
-~/Library/Application Support/FrappeSQLite/
+frappe/database/sqlite/
+frappe/search/sqlite_search.py
+frappe/utils/redis_wrapper.py
+frappe/utils/background_jobs.py
+frappe/realtime.py
 ```
 
-Current scope:
+## Desktop
 
-- First-run setup screen for site name, administrator details, and data folder.
-- Local PyInstaller sidecar serving Frappe on `127.0.0.1:8765`.
-- SQLite site data stored under the configured data directory.
-- Native menu actions for opening data/site folders and creating a site backup.
-- No Docker, MariaDB, Redis, or bench process required at runtime.
+Optional desktop packaging lives under:
 
-After each Tauri build, run:
-
-```bash
-./scripts/sync-sidecar-into-app.sh
+```text
+desktop/
+  shell/
+  runtime/
+  scripts/
 ```
 
-This restores the PyInstaller one-folder support layout into the generated `.app` bundle.
+Desktop is a consumer of the SQLite runtime. It should not define core framework behavior.
+
+See [desktop/README.md](desktop/README.md).
