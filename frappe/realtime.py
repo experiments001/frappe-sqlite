@@ -42,6 +42,9 @@ def publish_realtime(
 	if message is None:
 		message = {}
 
+	if frappe.conf.get("realtime_backend") == "noop":
+		return
+
 	if not task_id and hasattr(frappe.local, "task_id"):
 		task_id = frappe.local.task_id
 
@@ -103,6 +106,9 @@ def emit_via_redis(event, message, room):
 	:param event: Event name, like `task_progress` etc.
 	:param message: JSON message object. For async must contain `task_id`
 	:param room: name of the room"""
+	if frappe.conf.get("realtime_backend") == "noop":
+		return
+
 	from frappe.utils.background_jobs import get_redis_connection_without_auth
 
 	with suppress(redis.exceptions.ConnectionError):
@@ -126,6 +132,13 @@ SOCKETIO_SECRET_KEY = "socketio_auth_secret"
 
 def get_socketio_secret():
 	"""Generate socket.io secret and store in redis"""
+
+	if frappe.conf.get("realtime_backend") == "noop":
+		secret = frappe.conf.get(SOCKETIO_SECRET_KEY)
+		if not secret:
+			secret = frappe.generate_hash(length=32)
+			frappe.conf[SOCKETIO_SECRET_KEY] = secret
+		return secret
 
 	from frappe.utils.background_jobs import get_redis_connection_without_auth
 

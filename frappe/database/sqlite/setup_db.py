@@ -65,6 +65,17 @@ def copy_db(db_file=None, verbose=False):
 	if verbose:
 		print("Imported from database {}".format(db_path))
 
+	# Set journal_mode=WAL once at site creation.  WAL is persisted in the DB
+	# header so it does NOT need to be re-asserted on every connection (doing so
+	# triggers avoidable checkpoint/IO work on every connect).
+	import sqlite3
+
+	conn = sqlite3.connect(str(destination_db_path))
+	conn.execute("PRAGMA journal_mode = WAL")
+	conn.close()
+	if verbose:
+		print("WAL journal mode enabled on new database")
+
 
 def drop_database(db_name: str):
 	Path(db_name).unlink(missing_ok=True)
