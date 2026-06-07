@@ -5,3 +5,4 @@
 2026-06-07T01:51Z [Kimi]  Agent A STARTED — Tauri scaffold, sidecar, config
 2026-06-07T05:44Z [AgentA] Phase 4.1-4.3 DONE — Tauri scaffold, sidecar, permissions ready
 2026-06-07T05:48Z [AgentB] Phase 4.4 DONE — frontend launcher with healthcheck
+2026-06-07T06:38Z [AgentC] Phase 4.5 DONE — Tauri .app built and tested
