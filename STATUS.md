@@ -1,6 +1,6 @@
 # STATUS
 
-Last updated: 2026-06-07T05:44Z by Agent A
+Last updated: 2026-06-07T05:48Z by Agent B
 
 ## Current Phase
 Phase 4 — Tauri desktop shell (IN PROGRESS)
@@ -22,5 +22,20 @@ Phase 4 — Tauri desktop shell (IN PROGRESS)
 - `cargo check` passes successfully
 - Commit: `28adb62`
 
+## Agent B DONE
+- `src/main.ts` launcher implemented:
+  - Imports `Command` from `@tauri-apps/plugin-shell`
+  - Starts sidecar with `--port 8765 --no-browser`
+  - Polls HTTP HEAD on `http://127.0.0.1:8765` for up to 60s
+  - Navigates WebView to the URL on success
+  - Shows error message in page body on failure
+- `index.html` updated with loading spinner and hidden error div
+- `src/style.css` styled with centered loading, spinner animation, and red error text
+- `npx tsc --noEmit` passes with zero errors
+- Commit: `0aca687`
+
 ## Next Action
-Agent B: Write frontend launcher code (`src/main.ts`, `index.html`, `src/style.css`)
+Agent C: Build, test, and fix (`npm run tauri build`, verify .app bundle)
+
+## Status
+Agent B DONE, waiting for Agent C
