@@ -325,7 +325,7 @@ _redis_init_lock = threading.Lock()
 
 def setup_redis_cache_connection():
 	"""Defines `frappe.cache` as `RedisWrapper` instance"""
-	from frappe.utils.redis_wrapper import ClientCache, setup_cache
+	from frappe.utils.redis_wrapper import ClientCache, LocalCache, LocalClientCache, setup_cache
 
 	global cache
 	global client_cache
@@ -333,8 +333,12 @@ def setup_redis_cache_connection():
 	with _redis_init_lock:
 		# We need to check again since someone else might have setup connection before us.
 		if not cache:
-			cache = setup_cache()
-			client_cache = ClientCache()
+			if frappe.conf.get("cache_backend") == "local":
+				cache = LocalCache()
+				client_cache = LocalClientCache()
+			else:
+				cache = setup_cache()
+				client_cache = ClientCache()
 
 
 def errprint(msg: str) -> None:

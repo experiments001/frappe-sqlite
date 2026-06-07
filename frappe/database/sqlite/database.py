@@ -124,13 +124,23 @@ class SQLiteDatabase(SQLiteExceptionUtil, Database):
 		sqlite3.register_converter("date", lambda x: date.fromisoformat(x.decode()))
 		sqlite3.register_converter("time", lambda x: time.fromisoformat(x.decode()))
 		if read_only:
-			return sqlite3.connect(
+			conn = sqlite3.connect(
 				f"file:{db_path}?mode=ro",
 				uri=True,
 				detect_types=sqlite3.PARSE_DECLTYPES,
 				timeout=15,
 			)
-		return sqlite3.connect(db_path, detect_types=sqlite3.PARSE_DECLTYPES, timeout=15)
+		else:
+			conn = sqlite3.connect(db_path, detect_types=sqlite3.PARSE_DECLTYPES, timeout=15)
+
+		conn.create_function("CONCAT_WS", -1, self._concat_ws)
+		return conn
+
+	@staticmethod
+	def _concat_ws(separator, *values):
+		if separator is None:
+			separator = ""
+		return str(separator).join(str(value) for value in values if value is not None)
 
 	def get_db_path(self):
 		return Path(frappe.get_site_path()) / "db" / f"{self.cur_db_name}.db"
