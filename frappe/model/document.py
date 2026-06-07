@@ -253,6 +253,10 @@ class Document(BaseDocument):
 				for_update = ""
 				if self.flags.for_update and frappe.db.db_type != "sqlite":
 					for_update = "FOR UPDATE"
+				# SQLite: for_update is intentionally a no-op.  BEGIN IMMEDIATE
+				# (issued in SQLiteDatabase.begin()) makes the writer exclusive for
+				# the duration of the transaction, so there is no concurrent writer
+				# that could modify this row between SELECT and the subsequent write.
 				# Fast path - use raw SQL to avoid QB/ORM overheads.
 				d = frappe.db.sql(
 					"SELECT * FROM {table_name} WHERE `name` = %s {for_update}".format(
@@ -336,6 +340,7 @@ class Document(BaseDocument):
 		for_update = ""
 		if self.flags.for_update and frappe.db.db_type != "sqlite":
 			for_update = "FOR UPDATE"
+		# SQLite: for_update is intentionally a no-op — see note above.
 		# Fast pass for all other doctypes - using raw SQL
 		return frappe.db.sql(
 			"""SELECT * FROM {table_name}
