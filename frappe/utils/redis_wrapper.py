@@ -5,6 +5,7 @@ import pickle
 import re
 import threading
 import time
+from collections import defaultdict
 from collections import namedtuple
 from contextlib import suppress
 
@@ -19,6 +20,316 @@ from frappe.utils import cstr
 # 5 is faster than default which is 4.
 # Python uses old protocol for backward compatibility, we don't support anything <3.10.
 DEFAULT_PICKLE_PROTOCOL = 5
+
+
+class LocalCache:
+	"""Single-process cache backend for SQLite-only local runtimes."""
+
+	def __init__(self):
+		self._values = {}
+		self._expires = {}
+		self._hashes = defaultdict(dict)
+		self._lists = defaultdict(list)
+		self._sets = defaultdict(set)
+		self._lock = threading.RLock()
+
+	def __call__(self):
+		return self
+
+	def connected(self):
+		return True
+
+	def ping(self):
+		return True
+
+	def make_key(self, key, user=None, shared=False):
+		if isinstance(key, bytes):
+			key = key.decode()
+		if shared:
+			return key
+		if user:
+			if user is True:
+				user = frappe.local.session.get("user")
+			key = f"user:{user}:{key}"
+		return f"{frappe.local.conf.get('db_name')}|{key}"
+
+	def _is_expired(self, key):
+		expires_at = self._expires.get(key)
+		if expires_at is None:
+			return False
+		if time.monotonic() < expires_at:
+			return False
+		frappe.local.cache.pop(key, None)
+		self._values.pop(key, None)
+		self._expires.pop(key, None)
+		return True
+
+	def set_value(self, key, val, user=None, expires_in_sec=None, shared=False):
+		key = self.make_key(key, user=user, shared=shared)
+		with self._lock:
+			frappe.local.cache[key] = val
+			self._values[key] = val
+			if expires_in_sec:
+				self._expires[key] = time.monotonic() + expires_in_sec
+			else:
+				self._expires.pop(key, None)
+
+	def get_value(self, key, generator=None, user=None, expires=False, shared=False, *, use_local_cache=True):
+		original_key = key
+		key = self.make_key(key, user=user, shared=shared)
+		with self._lock:
+			self._is_expired(key)
+			if use_local_cache and key in frappe.local.cache:
+				return frappe.local.cache[key]
+			val = self._values.get(key)
+			if val is None and generator:
+				val = generator()
+				self.set_value(original_key, val, user=user, shared=shared)
+			elif not expires:
+				frappe.local.cache[key] = val
+			return val
+
+	def get(self, key):
+		return self.get_value(key, shared=True)
+
+	def set(self, name, value, ex=None):
+		self.set_value(name, value, expires_in_sec=ex, shared=True)
+
+	def setex(self, name, time, value):
+		self.set(name, value, ex=time)
+
+	def expire(self, key, seconds):
+		key = self.make_key(key)
+		with self._lock:
+			if key not in self._values:
+				return False
+			self._expires[key] = time.monotonic() + seconds
+		return True
+
+	def expire_key(self, key, seconds, *, user=None, shared=False):
+		key = self.make_key(key, user=user, shared=shared)
+		with self._lock:
+			if key not in self._values:
+				return False
+			self._expires[key] = time.monotonic() + seconds
+		return True
+
+	def exists(self, *names, user=None, shared=False):
+		with self._lock:
+			return sum(
+				1
+				for name in names
+				if not self._is_expired(self.make_key(name, user=user, shared=shared))
+				and self.make_key(name, user=user, shared=shared) in self._values
+			)
+
+	def incrby(self, key, amount=1):
+		key = self.make_key(key)
+		with self._lock:
+			self._values[key] = int(self._values.get(key) or 0) + amount
+			return self._values[key]
+
+	def get_keys(self, key, user=None, shared=False):
+		pattern = re.compile("^" + re.escape(self.make_key(key, user=user, shared=shared)).replace("\\*", ".*"))
+		with self._lock:
+			for cache_key in list(self._expires):
+				self._is_expired(cache_key)
+			return [
+				k
+				for k in set(self._values) | set(self._hashes) | set(self._lists) | set(self._sets)
+				if pattern.match(cstr(k))
+			]
+
+	def delete_keys(self, key, user=None, shared=False):
+		self.delete_value(self.get_keys(key, user=user, shared=shared), make_keys=False)
+
+	def delete_key(self, *args, **kwargs):
+		self.delete_value(*args, **kwargs)
+
+	def delete_value(self, keys, user=None, make_keys=True, shared=False):
+		if not keys:
+			return
+		if not isinstance(keys, list | tuple):
+			keys = (keys,)
+		if make_keys:
+			keys = [self.make_key(k, user=user, shared=shared) for k in keys]
+		with self._lock:
+			for key in keys:
+				frappe.local.cache.pop(key, None)
+				self._values.pop(key, None)
+				self._expires.pop(key, None)
+				self._hashes.pop(key, None)
+				self._lists.pop(key, None)
+				self._sets.pop(key, None)
+
+	def hset(self, name, key, value, shared=False, *args, **kwargs):
+		if key is None:
+			return
+		name = self.make_key(name, shared=shared)
+		with self._lock:
+			self._hashes[name][key] = value
+			frappe.local.cache.setdefault(name, {})[key] = value
+
+	def hget(self, name, key, generator=None, shared=False):
+		if not key:
+			return None
+		name = self.make_key(name, shared=shared)
+		with self._lock:
+			value = self._hashes[name].get(key)
+			if value is None and generator:
+				value = generator()
+				self.hset(name, key, value, shared=True)
+			return value
+
+	def hgetall(self, name):
+		return dict(self._hashes[self.make_key(name)])
+
+	def hexists(self, name, key, shared=False):
+		return key in self._hashes[self.make_key(name, shared=shared)]
+
+	def hdel(self, name, keys, shared=False, pipeline=None):
+		if not isinstance(keys, list | tuple):
+			keys = (keys,)
+		name = self.make_key(name, shared=shared)
+		with self._lock:
+			for key in keys:
+				self._hashes[name].pop(key, None)
+				if name in frappe.local.cache:
+					frappe.local.cache[name].pop(key, None)
+
+	def hdel_names(self, names, key):
+		for name in names:
+			self.hdel(name, key)
+
+	def hdel_keys(self, name_starts_with, key):
+		for name in self.get_keys(name_starts_with):
+			self.hdel(name, key, shared=True)
+
+	def hkeys(self, name):
+		return list(self._hashes[self.make_key(name)])
+
+	def lpush(self, key, value, user=None, shared=False):
+		key = self.make_key(key, user=user, shared=shared)
+		self._lists[key].insert(0, value)
+		return len(self._lists[key])
+
+	def rpush(self, key, value):
+		key = self.make_key(key)
+		self._lists[key].append(value)
+		return len(self._lists[key])
+
+	def lpop(self, key, user=None, shared=False):
+		key = self.make_key(key, user=user, shared=shared)
+		return self._lists[key].pop(0) if self._lists[key] else None
+
+	def rpop(self, key):
+		key = self.make_key(key)
+		return self._lists[key].pop() if self._lists[key] else None
+
+	def blpop(self, key, timeout=0, user=None, shared=False):
+		value = self.lpop(key, user=user, shared=shared)
+		return (key, value) if value is not None else None
+
+	def llen(self, key):
+		return len(self._lists[self.make_key(key)])
+
+	def lrange(self, key, start, stop):
+		values = self._lists[self.make_key(key)]
+		stop = None if stop == -1 else stop + 1
+		return values[start:stop]
+
+	def ltrim(self, key, start, stop):
+		key = self.make_key(key)
+		stop = None if stop == -1 else stop + 1
+		self._lists[key] = self._lists[key][start:stop]
+
+	def sadd(self, name, *values):
+		return self._sets[self.make_key(name)].update(values)
+
+	def srem(self, name, *values):
+		key = self.make_key(name)
+		for value in values:
+			self._sets[key].discard(value)
+
+	def sismember(self, name, value):
+		return value in self._sets[self.make_key(name)]
+
+	def spop(self, name):
+		key = self.make_key(name)
+		return self._sets[key].pop() if self._sets[key] else None
+
+	def srandmember(self, name, count=None):
+		values = list(self._sets[self.make_key(name)])
+		return values[:count] if count else (values[0] if values else None)
+
+	def smembers(self, name):
+		return self._sets[self.make_key(name)]
+
+	def publish(self, *args, **kwargs):
+		return 0
+
+	def pubsub(self):
+		raise redis.exceptions.ConnectionError("LocalCache does not support pubsub")
+
+
+class LocalClientCache:
+	def __init__(self):
+		self.cache = {}
+		self.hits = self.misses = 0
+		self.healthy = True
+
+	def get_value(self, key, *, shared=False, generator=None):
+		if key in self.cache:
+			self.hits += 1
+			return self.cache[key]
+		self.misses += 1
+		if generator:
+			value = generator()
+			self.set_value(key, value, shared=shared)
+			return value
+
+	def set_value(self, key, val, *, shared=False):
+		self.cache[key] = val
+
+	def get_doc(self, doctype: str, name: str | None = None):
+		if not name:
+			name = doctype
+		return self.get_value(
+			frappe.get_document_cache_key(doctype, name), generator=lambda: frappe.get_doc(doctype, name)
+		)
+
+	def delete_value(self, key, *, shared=False):
+		self.cache.pop(key, None)
+
+	def delete_keys(self, pattern):
+		regex = re.compile("^" + re.escape(pattern).replace("\\*", ".*"))
+		for key in list(self.cache):
+			if regex.match(cstr(key)):
+				self.cache.pop(key, None)
+
+	def erase_persistent_caches(self, *, doctype=None):
+		import frappe.utils.caching
+
+		if not doctype:
+			frappe.utils.caching._SITE_CACHE.clear()
+
+	def clear_cache(self):
+		self.cache.clear()
+
+	@property
+	def statistics(self):
+		return CacheStatistics(
+			hits=self.hits,
+			misses=self.misses,
+			capacity=0,
+			used=len(self.cache),
+			healthy=True,
+			utilization=0,
+			hit_ratio=round(self.hits / (self.hits + self.misses), 2) if self.hits else None,
+		)
+
+	def reset_statistics(self):
+		self.hits = self.misses = 0
 
 
 class RedisearchWrapper(Search):
