@@ -10,13 +10,20 @@ def site_name() -> str:
 
 def ensure_assets_available() -> None:
     root = bundle_root()
+    seed_assets = root / "resources" / "seed_site" / "sites" / "assets"
+    if not seed_assets.exists():
+        seed_assets = root / "desktop" / "runtime" / "resources" / "seed_site" / "sites" / "assets"
+
+    assets_dir = sites_path() / "assets"
+    if seed_assets.exists():
+        shutil.copytree(seed_assets, assets_dir, dirs_exist_ok=True)
+
     source_assets = root / "frappe" / "public"
     if not source_assets.exists():
         source_assets = root / "apps" / "frappe" / "frappe" / "public"
     if not source_assets.exists():
         raise RuntimeError(f"Frappe public assets not found: {source_assets}")
 
-    assets_dir = sites_path() / "assets"
     assets_dir.mkdir(parents=True, exist_ok=True)
     target = assets_dir / "frappe"
     if target.exists() or target.is_symlink():

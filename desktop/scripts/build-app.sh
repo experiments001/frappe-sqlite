@@ -16,7 +16,7 @@ if [[ ! -f "$SHELL_DIR/src-tauri/Cargo.toml" ]]; then
 fi
 
 if [[ -f "$SHELL_DIR/src-tauri/tauri.conf.json" || -f "$SHELL_DIR/src-tauri/Tauri.toml" ]]; then
-  (cd "$SHELL_DIR/src-tauri" && cargo tauri build)
+  (cd "$SHELL_DIR" && npm run tauri -- build)
 else
   echo "No Tauri config found under desktop/shell/src-tauri." >&2
   echo "Current PoC can sync into an existing app bundle, but a fresh app build needs tauri.conf.json/Tauri.toml restored." >&2
