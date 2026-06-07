@@ -1,6 +1,6 @@
 # SQLite-First Fixes — Work Plan & Tracker
 
-**Branch:** `sqlite/fixes-phase1`
+**Canonical branch:** `poc/sqlite-only-runtime-plan` (sqlite/fixes-phase1 merged ✅)
 **Base:** `poc/sqlite-only-runtime-plan` (committed baseline: `433b191b78`)
 **Repo:** `/Users/safwan/Documents/Codex/2026-06-06/https-github-com-lubusin-frappe-playground/frappe-core-sqlite-poc`
 **Docker bench:** `devcontainer-frappe-1` at `/Users/safwan/Code/docker/fdocker/.devcontainer`
@@ -162,12 +162,49 @@ bench --site dev.localhost run-tests --app frappe
 
 ## Merge plan
 
-Once all fixes are verified on `sqlite/fixes-phase1`:
+✅ **DONE** — sqlite/fixes-phase1 merged to poc/sqlite-only-runtime-plan (2026-06-07).
 
-```bash
-git checkout poc/sqlite-only-runtime-plan
-git merge sqlite/fixes-phase1 --no-ff -m "feat(sqlite): phase-1 SQLite-first fixes (1.2, 1.3, 4.1, 2.2, 2.4, 3.1)"
-```
+---
+
+## Explicitly deferred (post-beta)
+
+These are **not gaps** — they are named, reasoned deferrals.  Pick up after the first real-world pilot.
+
+| ID | Finding | Why deferred |
+|----|---------|-------------|
+| 2.1 | 4–6 string/regex rewrites per query | Memoizing `modify_query` requires thread-safe LRU on potentially non-hashable query objects; perf win is real but refactor risk is medium. Post-beta. |
+| 2.3 | Connection close/reopen on `read_only` toggle | Persistent RW+RO connection pool is a bigger refactor; requires connection state tracking across Frappe's `connect()`/`close()` lifecycle. Post-beta. |
+| 3.3 | STRICT tables unused | Optional opt-in for new sites; no urgency until pilot data shows affinity-coercion bugs in practice. Post-beta. |
+| 2.5 | `estimate_count` = full `COUNT(*)` | Safe fix (`MAX(rowid)`) is now unblocked by the concurrency-model doc. Implement as a standalone 1-line follow-up. |
+| 4.3 | `is_deadlocked` == `is_timedout` | Separate to `is_deadlocked = False` / `is_timedout = "locked"`. Explicit policy documented in `sqlite-concurrency-model.md`. Small change, post-beta. |
+
+---
+
+## DECISION REQUIRED — Finding 1.1: Money stored as REAL
+
+**Status:** Unresolved. Blocks any financial rollout (invoicing, VAT, multi-currency).
+
+### The problem
+
+`setup_type_map()` maps `Currency`, `Float`, `Percent`, `Rating`, `Duration` → SQLite `REAL` (IEEE-754 binary float).  On MariaDB these are `DECIMAL(21,9)` — exact base-10.  `REAL` accumulates rounding error: `0.1 + 0.2 ≠ 0.3`, tax splits, running totals silently corrupt.
+
+### Options
+
+| Option | Pro | Con | Scope impact |
+|--------|-----|-----|-------------|
+| **A. Integer minor units** (store fils/cents, scale in app) | Exact arithmetic, no library needed | Every read/write must scale; `flt()` / `precision` logic needs a SQLite branch | High — touches how Currency round-trips |
+| **B. TEXT + `decimal.Decimal`** | Exact, readable, no schema change | Every arithmetic op needs explicit `Decimal`; Frappe's `flt()` already wraps precision so hooking it is feasible | Medium — hook in `flt()` and `db.escape()` for SQLite |
+| **C. Keep REAL, document limitation** | Zero code change | Silent data corruption in any finance app; unacceptable for production financial data | Acceptable only for non-financial sites |
+
+### Recommended default
+
+**Option B (TEXT + Decimal) scoped to SQLite-only**, with `flt()` routing through `Decimal` for the SQLite branch.  This is the least invasive change with no schema migration required on existing SQLite sites.  Explicitly mark SQLite as "no multi-currency sub-fil precision guarantee" for the rare edge case where that matters.
+
+### Decision needed from
+
+Product/architecture owner — this is not a coding decision.  Once decided, implementation is 1–2 days.
+
+**Do not implement until the decision is recorded in `docs/DECISIONS.md`.**
 
 ---
 
@@ -177,3 +214,7 @@ git merge sqlite/fixes-phase1 --no-ff -m "feat(sqlite): phase-1 SQLite-first fix
 |------|--------|-------|
 | 2026-06-07 | Branch created: sqlite/fixes-phase1. Baseline committed (433b191b78). WORK_PLAN.md written. | Claude |
 | 2026-06-07 | All 6 fixes implemented. 36/36 tests pass (sqliteonly.localhost). Branch ready to merge. | Claude |
+| 2026-06-07 | sqlite/fixes-phase1 merged to poc/sqlite-only-runtime-plan. 36/36 tests pass with MariaDB+Redis stopped. One canonical tree. | Claude |
+| 2026-06-07 | 1.2b: change_column_type rewritten to use sqlite_master CREATE TABLE sql — PK/AUTOINCREMENT/DEFAULT/CHECK/triggers all preserved. 36/36 tests pass. | Claude |
+| 2026-06-07 | 1.4: for_update doc note added to document.py (both sites). Concurrency model doc written (sqlite-concurrency-model.md). 2.5 and 4.3 unblocked. | Claude |
+| 2026-06-07 | 2.1, 2.3, 3.3 explicitly deferred post-beta. 1.1 money decision memo added below. | Claude |
