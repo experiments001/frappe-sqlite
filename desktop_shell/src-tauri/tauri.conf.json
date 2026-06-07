@@ -2,7 +2,7 @@
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "frappe-sqlite-desktop",
   "version": "0.1.0",
-  "identifier": "com.tauri.dev",
+  "identifier": "com.frappe.sqlite-desktop",
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://localhost:1420",
@@ -12,6 +12,7 @@
   "app": {
     "windows": [
       {
+        "label": "main",
         "title": "Frappe SQLite",
         "width": 1400,
         "height": 900,

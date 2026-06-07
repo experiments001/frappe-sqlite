@@ -1,7 +1,5 @@
-import { Command } from "@tauri-apps/plugin-shell";
-
 const PORT = 8765;
-const URL = `http://127.0.0.1:${PORT}`;
+const FRAPPE_URL = `http://127.0.0.1:${PORT}`;
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -26,8 +24,7 @@ async function waitForServer(attempts = 60): Promise<void> {
   for (let i = 0; i < attempts; i++) {
     setLoadingText(`Starting Frappe SQLite... (${i + 1}/${attempts})`);
     try {
-      const res = await fetch(URL, { method: "HEAD", mode: "no-cors" });
-      // no-cors means we can't read status, but if it doesn't throw, server is up
+      const res = await fetch(FRAPPE_URL, { method: "HEAD", mode: "no-cors" });
       console.log(`Healthcheck attempt ${i + 1}: reachable`);
       return;
     } catch {
@@ -40,38 +37,13 @@ async function waitForServer(attempts = 60): Promise<void> {
 
 async function start(): Promise<void> {
   try {
-    console.log("Starting sidecar...");
+    console.log("Waiting for Frappe server...");
     setLoadingText("Starting Frappe SQLite...");
 
-    const cmd = Command.sidecar("binaries/frappe-sqlite", [
-      "--port",
-      String(PORT),
-      "--no-browser",
-    ]);
-
-    cmd.on("close", (data) => {
-      console.log(`Sidecar exited with code ${data.code}`);
-    });
-
-    cmd.on("error", (error) => {
-      console.error("Sidecar error:", error);
-    });
-
-    cmd.stdout.on("data", (line) => {
-      console.log("[sidecar stdout]", line);
-    });
-
-    cmd.stderr.on("data", (line) => {
-      console.error("[sidecar stderr]", line);
-    });
-
-    await cmd.spawn();
-    console.log("Sidecar spawned");
-
     await waitForServer();
-    console.log("Server ready, navigating to", URL);
+    console.log("Server ready, navigating to", FRAPPE_URL);
 
-    window.location.href = URL;
+    window.location.href = FRAPPE_URL;
   } catch (err) {
     console.error("Failed to start Frappe:", err);
     showError(err instanceof Error ? err.message : String(err));
