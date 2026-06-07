@@ -93,6 +93,16 @@ class SQLiteTable(DBTable):
 					columns[i] = f"`{col.fieldname}` {col.get_definition(for_modification=True)}"
 					break
 
+		# Save ALL existing secondary indexes before the rebuild so none are lost
+		saved_indexes = [
+			row["sql"]
+			for row in frappe.db.sql(
+				"SELECT sql FROM sqlite_master WHERE type='index' AND tbl_name=? AND sql IS NOT NULL",
+				(self.table_name,),
+				as_dict=1,
+			)
+		]
+
 		# Create new table
 		temp_table = f"{self.table_name}_new"
 		create_table = f"CREATE TABLE `{temp_table}` (\n{','.join(columns)}\n)"
@@ -109,15 +119,19 @@ class SQLiteTable(DBTable):
 		# Rename new table
 		frappe.db.sql_ddl(f"ALTER TABLE `{temp_table}` RENAME TO `{self.table_name}`")
 
-		# Recreate indexes
-		index_queries = []
+		# Restore all saved indexes (preserves any pre-existing indexes that the rebuild would have dropped)
+		for index_sql in saved_indexes:
+			frappe.db.sql_ddl(index_sql)
+
+		# Create any new indexes requested by this alter() call
+		new_index_queries = []
 		if self.add_unique:
-			index_queries.extend(
+			new_index_queries.extend(
 				f"CREATE UNIQUE INDEX IF NOT EXISTS `{col.fieldname}` ON `{self.table_name}` (`{col.fieldname}`)"
 				for col in self.add_unique
 			)
 		if self.add_index:
-			index_queries.extend(
+			new_index_queries.extend(
 				f"CREATE INDEX IF NOT EXISTS `{col.fieldname}_index` ON `{self.table_name}` (`{col.fieldname}`)"
 				for col in self.add_index
 				if not frappe.db.get_column_index(self.table_name, col.fieldname, unique=False)
@@ -125,9 +139,9 @@ class SQLiteTable(DBTable):
 		if self.meta.sort_field == "modified" and not frappe.db.get_column_index(
 			self.table_name, "modified", unique=False
 		):
-			index_queries.append(f"CREATE INDEX IF NOT EXISTS `modified` ON `{self.table_name}` (`modified`)")
+			new_index_queries.append(f"CREATE INDEX IF NOT EXISTS `modified` ON `{self.table_name}` (`modified`)")
 
-		for query in index_queries:
+		for query in new_index_queries:
 			frappe.db.sql_ddl(query)
 
 	def alter_primary_key(self) -> str | None:
