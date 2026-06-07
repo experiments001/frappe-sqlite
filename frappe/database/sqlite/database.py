@@ -367,7 +367,7 @@ class SQLiteDatabase(SQLiteExceptionUtil, Database):
 
 		index_name = index_name or self.get_index_name(fields)
 		table_name = get_table_name(doctype)
-		self.commit()
+		# No explicit commit needed — DDL is transactional on SQLite
 		self.sql(f"CREATE INDEX IF NOT EXISTS `{index_name}` ON `{table_name}` ({', '.join(fields)})")
 
 		# Ensure that DB migration doesn't clear this index, assuming this is manually added
@@ -394,7 +394,7 @@ class SQLiteDatabase(SQLiteExceptionUtil, Database):
 		sql_create_unique = (
 			f"CREATE UNIQUE INDEX IF NOT EXISTS `{constraint_name}` ON `{table_name}` ({columns})"
 		)
-		self.commit()  # commit before creating index
+		# No explicit commit needed — DDL is transactional on SQLite
 		self.sql(sql_create_unique)
 
 	def updatedb(self, doctype, meta=None):
@@ -457,9 +457,18 @@ class SQLiteDatabase(SQLiteExceptionUtil, Database):
 		return super().sql(*args, **kwargs)
 
 	def sql_ddl(self, query, *args, **kwargs):
-		"""Execute DDL query."""
-		super().sql_ddl(query, *args, **kwargs)
-		self.commit()
+		"""Execute DDL query.
+
+		SQLite DDL is fully transactional — CREATE/ALTER/DROP can run inside
+		BEGIN…COMMIT and roll back cleanly.  We intentionally do NOT auto-commit
+		around DDL here; the caller owns the transaction boundary.  This lets a
+		multi-step migration (e.g. DocType sync) either fully apply or fully roll
+		back, which is the opposite of the MariaDB-era behaviour this replaced.
+		"""
+		# Only execute the DDL; do not force a commit.
+		# (The base sql_ddl calls self.commit() then self.sql() — we bypass that
+		#  by calling self.sql() directly here so DDL stays in the current txn.)
+		self.sql(query, *args, **kwargs)
 
 	def begin(self, *, read_only=False):
 		if read_only or frappe.flags.read_only:
@@ -553,8 +562,13 @@ class SQLiteDatabase(SQLiteExceptionUtil, Database):
 		self.sql_ddl(f"DELETE FROM sqlite_sequence WHERE name='{table}'")
 
 	def check_implicit_commit(self, query: str, query_type: str):
-		if query_type in IMPLICIT_COMMIT_QUERY_TYPES and self.transaction_writes:
-			raise ImplicitCommitError("This statement can cause implicit commit", query)
+		"""SQLite DDL is fully transactional — no implicit commit on DDL.
+		This override intentionally does nothing; DDL stays in the current
+		transaction and will roll back cleanly if the migration fails.
+		(MariaDB/Postgres raise ImplicitCommitError here because their DDL
+		auto-commits; SQLite doesn't have that constraint.)
+		"""
+		pass  # no-op: DDL is transactional on SQLite
 
 
 def modify_query(query):
