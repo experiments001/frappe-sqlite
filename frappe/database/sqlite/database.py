@@ -224,7 +224,8 @@ class SQLiteDatabase(SQLiteExceptionUtil, Database):
 	def change_column_type(
 		self, doctype: str, column: str, type: str, nullable: bool = False
 	) -> list | tuple:
-		"""Change column type by recreating the table"""
+		"""Change column type by recreating the table.
+		Saves and restores all secondary indexes so they survive the rebuild."""
 		table_name = get_table_name(doctype)
 		temp_table = f"{table_name}_new"
 
@@ -244,6 +245,16 @@ class SQLiteDatabase(SQLiteExceptionUtil, Database):
 		if not column_exists:
 			raise frappe.InvalidColumnName(f"Column {column} does not exist in table {table_name}")
 
+		# Save all existing secondary indexes BEFORE drop (sqlite_master only has them while table exists)
+		saved_indexes = [
+			row["sql"]
+			for row in self.sql(
+				"SELECT sql FROM sqlite_master WHERE type='index' AND tbl_name=? AND sql IS NOT NULL",
+				(table_name,),
+				as_dict=1,
+			)
+		]
+
 		# Create new table
 		create_table = f"CREATE TABLE `{temp_table}` (\n{','.join(columns)}\n)"
 		self.sql_ddl(create_table)
@@ -259,45 +270,27 @@ class SQLiteDatabase(SQLiteExceptionUtil, Database):
 		self.sql_ddl(f"DROP TABLE `{table_name}`")
 		self.sql_ddl(f"ALTER TABLE `{temp_table}` RENAME TO `{table_name}`")
 
+		# Restore all saved indexes
+		for index_sql in saved_indexes:
+			self.sql_ddl(index_sql)
+
 	def rename_column(self, doctype: str, old_column_name: str, new_column_name: str):
-		"""Rename column by recreating the table"""
+		"""Rename a column using native ALTER TABLE … RENAME COLUMN (SQLite 3.25+).
+		Preserves all indexes, defaults, and constraints automatically."""
 		table_name = get_table_name(doctype)
-		temp_table = f"{table_name}_new"
 
-		# Get current table column definitions
-		columns = []
-		column_exists = False
-		for col in self.sql(f"PRAGMA table_info(`{table_name}`)", as_dict=1):
-			if col["name"] == old_column_name:
-				column_exists = True
-				null_str = "" if col["notnull"] == 0 else " NOT NULL"
-				columns.append(f"`{new_column_name}` {col['type']}{null_str}")
-			else:
-				null_str = "" if col["notnull"] == 0 else " NOT NULL"
-				columns.append(f"`{col['name']}` {col['type']}{null_str}")
-
+		# Verify column exists
+		column_exists = any(
+			col["name"] == old_column_name
+			for col in self.sql(f"PRAGMA table_info(`{table_name}`)", as_dict=1)
+		)
 		if not column_exists:
 			raise frappe.InvalidColumnName(f"Column {old_column_name} does not exist in table {table_name}")
 
-		# Create new table
-		create_table = f"CREATE TABLE `{temp_table}` (\n{','.join(columns)}\n)"
-		self.sql_ddl(create_table)
-
-		# Get list of columns for SELECT, replacing old name with new
-		column_names = []
-		for col in self.sql(f"PRAGMA table_info(`{table_name}`)", as_dict=1):
-			if col["name"] == old_column_name:
-				column_names.append(f"`{old_column_name}` as `{new_column_name}`")
-			else:
-				column_names.append(f"`{col['name']}`")
-
-		# Copy data
-		column_list = ", ".join(column_names)
-		self.sql_ddl(f"INSERT INTO `{temp_table}` SELECT {column_list} FROM `{table_name}`")
-
-		# Drop old table and rename new table
-		self.sql_ddl(f"DROP TABLE `{table_name}`")
-		self.sql_ddl(f"ALTER TABLE `{temp_table}` RENAME TO `{table_name}`")
+		# Native rename — no rebuild, no index loss (SQLite 3.25+)
+		self.sql(
+			f"ALTER TABLE `{table_name}` RENAME COLUMN `{old_column_name}` TO `{new_column_name}`"
+		)
 
 	def create_auth_table(self):
 		self.sql_ddl(
