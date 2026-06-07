@@ -231,31 +231,119 @@ class SQLiteDatabase(SQLiteExceptionUtil, Database):
 		table_name = get_table_name(doctype)
 		return self.sql(f"PRAGMA table_info(`{table_name}`)")
 
+	# ── helpers for change_column_type ──────────────────────────────────────
+
+	@staticmethod
+	def _split_create_table_body(create_sql: str) -> tuple[str, list[str], str]:
+		"""Split CREATE TABLE sql into prefix, list of column/constraint clauses,
+		and suffix.  Splits on depth-0 commas only so nested parens (CHECK, etc.)
+		are preserved intact.
+
+		Returns (prefix, parts, suffix) where prefix ends with '(' and suffix
+		starts with ')'.
+		"""
+		first = create_sql.index("(")
+		last = create_sql.rindex(")")
+		body = create_sql[first + 1 : last]
+
+		parts, current, depth = [], [], 0
+		for ch in body:
+			if ch == "(":
+				depth += 1
+				current.append(ch)
+			elif ch == ")":
+				depth -= 1
+				current.append(ch)
+			elif ch == "," and depth == 0:
+				parts.append("".join(current).strip())
+				current = []
+			else:
+				current.append(ch)
+		if current:
+			parts.append("".join(current).strip())
+
+		return create_sql[: first + 1], parts, create_sql[last:]
+
+	@staticmethod
+	def _patch_column_in_parts(
+		parts: list[str], column: str, new_type: str, nullable: bool
+	) -> tuple[list[str], bool]:
+		"""Find the clause for *column* in *parts* and replace its type token.
+		Also enforces nullability: adds/removes NOT NULL based on *nullable*.
+		Returns (new_parts, found_flag).
+		"""
+		# Matches: optional-quote column-name optional-quote whitespace TYPE
+		col_pat = re.compile(
+			rf'^([`"\[]?{re.escape(column)}[`"\]]?\s+)(\S+)(.*)',
+			re.IGNORECASE | re.DOTALL,
+		)
+		new_parts = list(parts)
+		for i, part in enumerate(parts):
+			m = col_pat.match(part.strip())
+			if m:
+				prefix_ws, _old_type, rest = m.group(1), m.group(2), m.group(3)
+				# Adjust NOT NULL in the constraint tail
+				if nullable:
+					rest = re.sub(r"\bNOT\s+NULL\b", "", rest, flags=re.IGNORECASE).strip()
+				else:
+					if not re.search(r"\bNOT\s+NULL\b", rest, re.IGNORECASE):
+						rest = " NOT NULL" + rest
+				new_parts[i] = f"{part[:part.index(part.strip()[0])]}{prefix_ws}{new_type}{rest}"
+				return new_parts, True
+		return new_parts, False
+
 	def change_column_type(
 		self, doctype: str, column: str, type: str, nullable: bool = False
 	) -> list | tuple:
-		"""Change column type by recreating the table.
-		Saves and restores all secondary indexes so they survive the rebuild."""
+		"""Change a column's type while preserving the full schema.
+
+		Uses the original CREATE TABLE SQL from sqlite_master as the source of
+		truth so PRIMARY KEY, AUTOINCREMENT, DEFAULT values, CHECK constraints,
+		and all table-level constraints survive the rebuild.  Indexes and
+		triggers are saved separately and recreated after the rename.
+
+		This is the SQLite-recommended 12-step procedure adapted for Frappe.
+		"""
 		table_name = get_table_name(doctype)
 		temp_table = f"{table_name}_new"
 
-		# Get current table column definitions
-		columns = []
-		column_exists = False
-		for col in self.sql(f"PRAGMA table_info(`{table_name}`)", as_dict=1):
-			if col["name"] == column:
-				column_exists = True
-				null_str = "" if nullable else " NOT NULL"
-				columns.append(f"`{col['name']}` {type}{null_str}")
-			else:
-				null_str = "" if col["notnull"] == 0 else " NOT NULL"
-				columns.append(f"`{col['name']}` {col['type']}{null_str}")
-
-		# Check that the column exists
-		if not column_exists:
+		# 1. Verify column exists
+		col_names = [c["name"] for c in self.sql(f"PRAGMA table_info(`{table_name}`)", as_dict=1)]
+		if column not in col_names:
 			raise frappe.InvalidColumnName(f"Column {column} does not exist in table {table_name}")
 
-		# Save all existing secondary indexes BEFORE drop (sqlite_master only has them while table exists)
+		# 2. Fetch the original CREATE TABLE SQL — this carries PK, AUTOINCREMENT,
+		#    DEFAULT, CHECK, and all table-level constraints that PRAGMA table_info
+		#    does NOT return.
+		original_sql_rows = self.sql(
+			"SELECT sql FROM sqlite_master WHERE type='table' AND name=?",
+			(table_name,),
+			as_dict=1,
+		)
+		if not original_sql_rows or not original_sql_rows[0]["sql"]:
+			raise frappe.ValidationError(f"Cannot find CREATE TABLE sql for {table_name}")
+		original_sql = original_sql_rows[0]["sql"]
+
+		# 3. Parse the body, patch the target column's type and nullability
+		prefix, parts, suffix = self._split_create_table_body(original_sql)
+		parts, found = self._patch_column_in_parts(parts, column, type, nullable)
+		if not found:
+			raise frappe.InvalidColumnName(
+				f"Column {column} found in PRAGMA but not in CREATE TABLE sql — schema inconsistency"
+			)
+
+		# 4. Build CREATE TABLE for the temp table (substitute name)
+		new_body = ",\n".join(parts)
+		# Replace the original table name in the CREATE TABLE header with temp_table
+		temp_create = re.sub(
+			r"(CREATE\s+TABLE\s+)[`\"\[]?" + re.escape(table_name) + r"[`\"\]]?",
+			rf'\1`{temp_table}`',
+			prefix,
+			count=1,
+			flags=re.IGNORECASE,
+		) + new_body + suffix
+
+		# 5. Save all indexes and triggers BEFORE the drop
 		saved_indexes = [
 			row["sql"]
 			for row in self.sql(
@@ -264,25 +352,25 @@ class SQLiteDatabase(SQLiteExceptionUtil, Database):
 				as_dict=1,
 			)
 		]
-
-		# Create new table
-		create_table = f"CREATE TABLE `{temp_table}` (\n{','.join(columns)}\n)"
-		self.sql_ddl(create_table)
-
-		# Copy data
-		column_names = [
-			f"`{col['name']}`" for col in self.sql(f"PRAGMA table_info(`{table_name}`)", as_dict=1)
+		saved_triggers = [
+			row["sql"]
+			for row in self.sql(
+				"SELECT sql FROM sqlite_master WHERE type='trigger' AND tbl_name=? AND sql IS NOT NULL",
+				(table_name,),
+				as_dict=1,
+			)
 		]
-		column_list = ", ".join(column_names)
-		self.sql_ddl(f"INSERT INTO `{temp_table}` SELECT {column_list} FROM `{table_name}`")
 
-		# Drop old table and rename new table
+		# 6–9. Create temp, copy, drop original, rename
+		self.sql_ddl(temp_create)
+		col_list = ", ".join(f"`{c}`" for c in col_names)
+		self.sql_ddl(f"INSERT INTO `{temp_table}` SELECT {col_list} FROM `{table_name}`")
 		self.sql_ddl(f"DROP TABLE `{table_name}`")
 		self.sql_ddl(f"ALTER TABLE `{temp_table}` RENAME TO `{table_name}`")
 
-		# Restore all saved indexes
-		for index_sql in saved_indexes:
-			self.sql_ddl(index_sql)
+		# 10–11. Restore indexes and triggers
+		for sql_stmt in saved_indexes + saved_triggers:
+			self.sql_ddl(sql_stmt)
 
 	def rename_column(self, doctype: str, old_column_name: str, new_column_name: str):
 		"""Rename a column using native ALTER TABLE … RENAME COLUMN (SQLite 3.25+).
