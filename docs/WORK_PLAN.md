@@ -27,12 +27,12 @@ Each Kimi worker handles one fix at a time. Tests are run after each fix before 
 
 | # | ID | Fix | Files | Status | Notes |
 |---|----|-----|-------|--------|-------|
-| 1 | 1.2 | ALTER TABLE: use native RENAME/DROP COLUMN; 12-step rebuild for type changes | `frappe/database/sqlite/schema.py`, `frappe/database/sqlite/database.py` | ⏳ pending | |
-| 2 | 1.3 | Transactional DDL: remove auto-commit guard; let DDL be part of transaction | `frappe/database/sqlite/database.py` | ⏳ pending | |
-| 3 | 4.1 | BEGIN IMMEDIATE for write transactions; unify timeout (fix 4.2 too) | `frappe/database/sqlite/database.py` | ⏳ pending | |
-| 4 | 2.2 | Dict-value named binding: %(name)s → :name, bind via sqlite3 native | `frappe/database/sqlite/database.py` | ⏳ pending | |
-| 5 | 2.4 | Remove Python CONCAT_WS shim (native in SQLite 3.44+) | `frappe/database/sqlite/database.py` | ⏳ pending | |
-| 6 | 3.1 | PRAGMA profile: add cache_size, mmap_size, temp_store; WAL once at creation | `frappe/database/sqlite/database.py`, `frappe/database/sqlite/setup_db.py` | ⏳ pending | |
+| 1 | 1.2 | ALTER TABLE: use native RENAME/DROP COLUMN; 12-step rebuild for type changes | `frappe/database/sqlite/schema.py`, `frappe/database/sqlite/database.py` | ✅ done | commit f2e64004 |
+| 2 | 1.3 | Transactional DDL: remove auto-commit guard; let DDL be part of transaction | `frappe/database/sqlite/database.py` | ✅ done | commit e6434c0d |
+| 3 | 4.1 | BEGIN IMMEDIATE for write transactions; unify timeout (fix 4.2 too) | `frappe/database/sqlite/database.py` | ✅ done | commit 7da6e300 |
+| 4 | 2.2 | Dict-value named binding: %(name)s → :name, bind via sqlite3 native | `frappe/database/sqlite/database.py` | ✅ done | commit 7da6e300 |
+| 5 | 2.4 | Remove Python CONCAT_WS shim (native in SQLite 3.44+) | `frappe/database/sqlite/database.py` | ✅ done | commit 7da6e300 |
+| 6 | 3.1 | PRAGMA profile: add cache_size, mmap_size, temp_store; WAL once at creation | `frappe/database/sqlite/database.py`, `frappe/database/sqlite/setup_db.py` | ✅ done | commit bc9eebab |
 
 ---
 
@@ -176,3 +176,4 @@ git merge sqlite/fixes-phase1 --no-ff -m "feat(sqlite): phase-1 SQLite-first fix
 | Date | Action | Agent |
 |------|--------|-------|
 | 2026-06-07 | Branch created: sqlite/fixes-phase1. Baseline committed (433b191b78). WORK_PLAN.md written. | Claude |
+| 2026-06-07 | All 6 fixes implemented. 36/36 tests pass (sqliteonly.localhost). Branch ready to merge. | Claude |
