@@ -12,7 +12,7 @@ Move from the current working PoC to a clean Frappe-compatible++ repository shap
 - Desktop lives as an optional root-level feature, similar to `docker/`.
 - Future Frappe upstream syncs remain reviewable and manageable.
 
-This is a later cleanup plan. Do not start this while the current desktop/runtime PoC is unstable.
+This cleanup has started. Keep future changes incremental and verify each step.
 
 ## Desired Final Shape
 
@@ -90,7 +90,7 @@ git switch -c cleanup/frappe-compatible-desktop-layout
 
 Goal: isolate desktop files without changing behavior.
 
-Current PoC paths:
+Previous PoC paths:
 
 ```text
 desktop_shell/
@@ -103,7 +103,7 @@ Target paths:
 ```text
 desktop/shell/
 desktop/runtime/
-desktop/scripts/sync-sidecar-into-app.sh
+desktop/scripts/sync-sidecar.sh
 desktop/README.md
 ```
 
@@ -113,7 +113,7 @@ Patch idea:
 git mv desktop_shell desktop/shell
 git mv desktop_runtime desktop/runtime
 mkdir -p desktop/scripts
-git mv scripts/sync-sidecar-into-app.sh desktop/scripts/sync-sidecar-into-app.sh
+git mv scripts/sync-sidecar-into-app.sh desktop/scripts/sync-sidecar.sh
 ```
 
 Then update references in:
@@ -122,7 +122,7 @@ Then update references in:
 - `desktop/shell/src-tauri/Cargo.toml`
 - `desktop/shell/src-tauri/src/lib.rs`
 - `desktop/shell/package.json`
-- `desktop/scripts/sync-sidecar-into-app.sh`
+- `desktop/scripts/sync-sidecar.sh`
 - root `README.md`
 - `AGENTS.md`
 - any docs that reference old paths.
@@ -133,10 +133,16 @@ Acceptance:
 cd desktop/shell
 npm run build
 npm run tauri build
-../scripts/sync-sidecar-into-app.sh
+../scripts/sync-sidecar.sh
 ```
 
 Then launch and verify `/login` and assets.
+
+Current branch note:
+
+- The source move to `desktop/` is done.
+- Generated `_internal` and app bundle outputs remain ignored build outputs.
+- A fresh Tauri build still needs the missing Tauri config/package metadata restored under `desktop/shell`.
 
 ## Phase 2: Separate Root README From Desktop README
 
@@ -168,19 +174,25 @@ Script path first:
 
 ```text
 desktop/scripts/init.sh
-desktop/scripts/build.sh
-desktop/scripts/run.sh
+desktop/scripts/build-sidecar.sh
+desktop/scripts/build-app.sh
+desktop/scripts/run-dev.sh
+desktop/scripts/run-packaged.sh
 desktop/scripts/package.sh
-desktop/scripts/sync-sidecar-into-app.sh
+desktop/scripts/sync-sidecar.sh
+desktop/scripts/verify-bundle.sh
 ```
 
 Minimum script contract:
 
 - `init.sh`: install desktop shell/runtime prerequisites.
-- `build.sh`: build frontend, sidecar, and Tauri app.
-- `run.sh`: launch the desktop app.
+- `build-sidecar.sh`: transitional sidecar builder using `SQLITEPOC_ROOT`; later move PyInstaller spec into this repo.
+- `build-app.sh`: build frontend and Tauri app.
+- `run-dev.sh`: launch the source runner.
+- `run-packaged.sh`: launch the generated desktop app.
 - `package.sh`: produce release bundle later.
-- `sync-sidecar-into-app.sh`: copy sidecar internals into the `.app` after Tauri build.
+- `sync-sidecar.sh`: copy sidecar internals into the `.app` after Tauri build.
+- `verify-bundle.sh`: compare SQLite source/staged/app bundle freshness.
 
 Bench command can come later as a wrapper:
 
@@ -198,7 +210,8 @@ Patch idea for bench integration later:
 
 Acceptance:
 
-- `./desktop/scripts/run.sh` works from repo root.
+- `./desktop/scripts/run-dev.sh` works from repo root once a seed site exists.
+- `./desktop/scripts/run-packaged.sh` works after app build/sync.
 - No normal Frappe/bench flow requires desktop dependencies.
 
 ## Phase 4: Clean Generated And Local Files

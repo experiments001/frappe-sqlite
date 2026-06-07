@@ -49,12 +49,12 @@ package.json
 yarn.lock
 ```
 
-Current PoC paths that should later move:
+Current desktop paths:
 
 ```text
-desktop_shell/      -> desktop/shell/
-desktop_runtime/    -> desktop/runtime/
-scripts/sync-sidecar-into-app.sh -> desktop/scripts/sync-sidecar-into-app.sh
+desktop/shell/
+desktop/runtime/
+desktop/scripts/
 ```
 
 ## Generated Artifacts
@@ -89,16 +89,18 @@ For PoC, the sidecar binary may remain committed for convenience. For release, p
 
 ## P0 Before Release
 
-- [ ] Move desktop code under root `desktop/`.
-- [ ] Split root README from desktop README.
-- [ ] Add ignore rules for generated desktop/runtime artifacts.
-- [ ] Stop committing `_internal` runtime output.
+- [x] Move desktop code under root `desktop/`.
+- [x] Split root README from desktop README.
+- [x] Add ignore rules for generated desktop/runtime artifacts.
+- [x] Stop committing `_internal` runtime output.
 - [ ] Decide whether the sidecar binary is tracked, Git LFS, or release-only.
-- [ ] Add one command/script to rebuild sidecar from current source.
-- [ ] Add one command/script to sync sidecar into Tauri app.
-- [ ] Add one command/script to verify bundle freshness.
-- [ ] Verify desktop sidecar contains latest SQLite performance/correctness fixes.
-- [ ] Verify final `.app` contains the same SQLite files as source or an expected frozen copy.
+- [x] Add transitional command/script to rebuild sidecar from the current sidecar build checkout.
+- [ ] Move PyInstaller spec/resources into `desktop/runtime` so sidecar builds from this repository.
+- [ ] Restore/check in Tauri config and package metadata needed for a fresh app build from `desktop/shell`.
+- [x] Add one command/script to sync sidecar into Tauri app.
+- [x] Add one command/script to verify bundle freshness.
+- [x] Verify desktop sidecar contains latest SQLite performance/correctness fixes.
+- [x] Verify final `.app` contains the same SQLite files as source or an expected frozen copy.
 - [ ] Preserve MariaDB/PostgreSQL default behavior.
 - [ ] Preserve SQLite as opt-in via site config/environment.
 
@@ -122,7 +124,7 @@ Minimum contracts:
 | Script | Purpose |
 | --- | --- |
 | `init.sh` | Install/check desktop prerequisites. |
-| `build-sidecar.sh` | Build PyInstaller sidecar from the current Frappe source tree. |
+| `build-sidecar.sh` | Transitional PyInstaller sidecar build from `SQLITEPOC_ROOT`; release target is this repo's source tree. |
 | `sync-sidecar.sh` | Copy sidecar binary and `_internal` runtime into the Tauri expected locations. |
 | `build-app.sh` | Build Vite/Tauri app bundle. |
 | `run-dev.sh` | Run desktop against source/runtime dev mode when possible. |
@@ -150,9 +152,9 @@ Benefits:
 
 TODO:
 
-- [ ] Add `desktop/scripts/run-dev.sh`.
+- [x] Add `desktop/scripts/run-dev.sh`.
 - [ ] Let Tauri point to a source-runner process or already-running local server.
-- [ ] Document ports and config file locations.
+- [x] Document ports and config file locations.
 
 ### Packaged Runtime Mode
 
@@ -170,9 +172,9 @@ Benefits:
 
 TODO:
 
-- [ ] Add `desktop/scripts/build-sidecar.sh`.
-- [ ] Add `desktop/scripts/build-app.sh`.
-- [ ] Add `desktop/scripts/verify-bundle.sh`.
+- [x] Add `desktop/scripts/build-sidecar.sh`.
+- [x] Add `desktop/scripts/build-app.sh`.
+- [x] Add `desktop/scripts/verify-bundle.sh`.
 
 ## Production Mode
 
@@ -228,23 +230,23 @@ rg -n "BEGIN IMMEDIATE|_BUSY_TIMEOUT_MS|cache_size = -32768|mmap_size = 13421772
   desktop/shell/src-tauri/binaries/_internal/frappe/database/sqlite/setup_db.py
 ```
 
-The exact paths should be updated after `desktop_shell/` moves to `desktop/shell/`.
+The canonical paths now use `desktop/shell/`.
 
 ## SQLite Performance Fix Sync TODO
 
-Current finding:
+Historical finding:
 
 - checked-in Frappe source has the latest SQLite performance fixes,
 - the existing desktop sidecar `_internal` runtime was built from older SQLite code,
 - the final `.app` bundle therefore may run stale SQLite code.
 
-Required now:
+Current branch status:
 
-- [ ] Rebuild sidecar from the latest `experiments001/frappe-sqlite/main` source.
-- [ ] Copy sidecar binary and `_internal` into Tauri binary/app locations.
-- [ ] Rebuild or resync the `.app`.
-- [ ] Verify markers in sidecar `_internal`.
-- [ ] Verify markers in final `.app`.
+- [x] Rebuilt/refreshed sidecar from the latest SQLite-fixed runtime.
+- [x] Copied sidecar binary and `_internal` into Tauri binary/app locations.
+- [x] Resynced the `.app`.
+- [x] Verified markers in sidecar `_internal`.
+- [x] Verified markers in final `.app`.
 - [ ] Run `/login` and asset smoke tests.
 
 ## Core Frappe Compatibility Watch

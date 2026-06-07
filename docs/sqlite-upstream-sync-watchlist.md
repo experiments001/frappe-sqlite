@@ -72,7 +72,7 @@ Expected desktop-owned concerns:
 - app signing/notarization,
 - asset/runtime bundling.
 
-These should live under a top-level `desktop/` area long term. Current `desktop_shell/` and `desktop_runtime/` are acceptable for the PoC, but future cleanup should move them without touching Frappe core behavior.
+These live under the top-level `desktop/` area. Keep this boundary intact.
 
 ## Upstream Sync Checklist
 
@@ -96,7 +96,7 @@ If desktop runtime is in scope for the sync:
 ```bash
 npm run build
 npm run tauri build
-./scripts/sync-sidecar-into-app.sh
+./desktop/scripts/sync-sidecar.sh
 ```
 
 Then verify:

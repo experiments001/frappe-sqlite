@@ -198,3 +198,20 @@ cypress/videos
 .helix/
 # Aider AI Chat
 .aider*
+
+# Frappe SQLite desktop generated artifacts
+desktop/shell/node_modules/
+desktop/shell/dist/
+desktop/shell/src-tauri/target/
+desktop/shell/src-tauri/gen/
+desktop/shell/src-tauri/binaries/_internal/
+desktop/shell/src-tauri/binaries/*.log
+desktop/runtime/resources/seed_site/
+desktop/runtime/runner/__pycache__/
+desktop/runtime/pyinstaller/**/*.pyc
+scripts/sign-app.sh
+
+# Legacy PoC generated artifacts kept out while cleanup is in progress
+desktop_shell/
+desktop_runtime/
+build/

@@ -1,10 +1,10 @@
 # AGENTS.md
 
-This project is the host-native macOS desktop packaging POC for Frappe running on SQLite. Read this file before making changes.
+This project is a Frappe-compatible fork with optional SQLite support and optional host-native macOS desktop packaging. Read this file before making changes.
 
 ## Core Intent
 
-The desktop app must run on the host Mac, outside Docker.
+SQLite support must stay inside normal Frappe runtime paths and remain opt-in through site config/environment config. The desktop app must run on the host Mac, outside Docker.
 
 Runtime target:
 
@@ -20,14 +20,15 @@ Docker may be used only as historical/reference validation for the separate SQLi
 
 ## Important Paths
 
-- Desktop project root: `/Users/safwan/Code/docker/fdocker/development/frappe-sqlite-tauri`
-- Tauri shell: `/Users/safwan/Code/docker/fdocker/development/frappe-sqlite-tauri/desktop_shell`
-- Tauri Rust/backend config: `/Users/safwan/Code/docker/fdocker/development/frappe-sqlite-tauri/desktop_shell/src-tauri`
-- Python desktop runtime: `/Users/safwan/Code/docker/fdocker/development/frappe-sqlite-tauri/desktop_runtime`
-- PyInstaller spec: `/Users/safwan/Code/docker/fdocker/development/frappe-sqlite-tauri/desktop_runtime/pyinstaller/erpnext_sqlite.spec`
-- Built app: `/Users/safwan/Code/docker/fdocker/development/frappe-sqlite-tauri/desktop_shell/src-tauri/target/release/bundle/macos/frappe-sqlite-desktop.app`
-- PyInstaller output: `/Users/safwan/Code/docker/fdocker/development/frappe-sqlite-tauri/dist`
-- SQLite/Frappe source bench reference only: `/Users/safwan/Code/docker/fdocker/development/sqlitepoc`
+- Project root: `/Users/safwan/Code/docker/fdocker/development/frappe-sqlite-tauri`
+- SQLite backend: `/Users/safwan/Code/docker/fdocker/development/frappe-sqlite-tauri/frappe/database/sqlite`
+- Desktop root: `/Users/safwan/Code/docker/fdocker/development/frappe-sqlite-tauri/desktop`
+- Tauri shell: `/Users/safwan/Code/docker/fdocker/development/frappe-sqlite-tauri/desktop/shell`
+- Tauri Rust/backend config: `/Users/safwan/Code/docker/fdocker/development/frappe-sqlite-tauri/desktop/shell/src-tauri`
+- Python desktop runtime: `/Users/safwan/Code/docker/fdocker/development/frappe-sqlite-tauri/desktop/runtime`
+- Desktop scripts: `/Users/safwan/Code/docker/fdocker/development/frappe-sqlite-tauri/desktop/scripts`
+- Built app: `/Users/safwan/Code/docker/fdocker/development/frappe-sqlite-tauri/desktop/shell/src-tauri/target/release/bundle/macos/frappe-sqlite-desktop.app`
+- Historical PyInstaller build checkout: `/Users/safwan/Code/docker/fdocker/development/sqlitepoc`
 
 ## Do Not Do These Things
 
@@ -46,7 +47,7 @@ Do not change the desktop app to call Docker, `bench serve`, MariaDB, Redis, Sup
 
 Do not assume the Docker SQLite POC URL is the desktop runtime. The desktop runtime should serve from the PyInstaller sidecar on host localhost, normally `127.0.0.1:8765`.
 
-Do not remove the `socket.getfqdn` workaround in `desktop_runtime/runner/server.py` unless you have reproduced and fixed the macOS `.app` sidecar startup hang another way.
+Do not remove the `socket.getfqdn` workaround in `desktop/runtime/runner/server.py` unless you have reproduced and fixed the macOS `.app` sidecar startup hang another way.
 
 Do not commit, push, delete files, or run destructive cleanup unless explicitly instructed.
 
@@ -75,7 +76,7 @@ Primary fix:
 4. Sign Mach-O binaries and the app without deleting metadata.
 5. Test sidecar and GUI launch on the host Mac.
 
-Patch idea for `desktop_runtime/pyinstaller/erpnext_sqlite.spec`:
+Patch idea for the PyInstaller spec, currently in the historical `sqlitepoc` build checkout:
 
 ```python
 from PyInstaller.utils.hooks import collect_all, collect_submodules, copy_metadata
@@ -104,7 +105,7 @@ find /Users/safwan/Code/docker/fdocker/development/frappe-sqlite-tauri/dist/frap
 Check app bundle metadata:
 
 ```bash
-APP=/Users/safwan/Code/docker/fdocker/development/frappe-sqlite-tauri/desktop_shell/src-tauri/target/release/bundle/macos/frappe-sqlite-desktop.app
+APP=/Users/safwan/Code/docker/fdocker/development/frappe-sqlite-tauri/desktop/shell/src-tauri/target/release/bundle/macos/frappe-sqlite-desktop.app
 find "$APP/Contents/MacOS/_internal" -maxdepth 1 -name '*semantic*' -print
 find "$APP/Contents/MacOS/_internal" -maxdepth 2 -path '*pkg_resources*' -print
 ```
@@ -112,7 +113,7 @@ find "$APP/Contents/MacOS/_internal" -maxdepth 2 -path '*pkg_resources*' -print
 Run sidecar directly:
 
 ```bash
-APP=/Users/safwan/Code/docker/fdocker/development/frappe-sqlite-tauri/desktop_shell/src-tauri/target/release/bundle/macos/frappe-sqlite-desktop.app
+APP=/Users/safwan/Code/docker/fdocker/development/frappe-sqlite-tauri/desktop/shell/src-tauri/target/release/bundle/macos/frappe-sqlite-desktop.app
 "$APP/Contents/MacOS/frappe-sqlite" --port 8766 --no-browser
 ```
 
@@ -131,20 +132,22 @@ HTTP/1.1 200 OK
 Run Tauri E2E:
 
 ```bash
-cd /Users/safwan/Code/docker/fdocker/development/frappe-sqlite-tauri/desktop_shell
-./scripts/e2e_test.sh
+cd /Users/safwan/Code/docker/fdocker/development/frappe-sqlite-tauri
+./desktop/scripts/verify-bundle.sh
 ```
 
 Expected:
 
 ```text
-E2E test PASSED
+Bundle freshness verified.
 ```
+
+This freshness check does not replace the host browser smoke test. Also run the sidecar directly and verify `/login` plus CSS/JS assets.
 
 Launch app:
 
 ```bash
-open /Users/safwan/Code/docker/fdocker/development/frappe-sqlite-tauri/desktop_shell/src-tauri/target/release/bundle/macos/frappe-sqlite-desktop.app
+open /Users/safwan/Code/docker/fdocker/development/frappe-sqlite-tauri/desktop/shell/src-tauri/target/release/bundle/macos/frappe-sqlite-desktop.app
 ```
 
 Manual checks:
