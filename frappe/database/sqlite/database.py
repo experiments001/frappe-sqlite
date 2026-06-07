@@ -103,18 +103,30 @@ class SQLiteDatabase(SQLiteExceptionUtil, Database):
 	default_port = None
 	MAX_ROW_SIZE_LIMIT = None
 
+	# Single source of truth for write-lock wait time (fix 4.2).
+	# PRAGMA busy_timeout is the actual SQLite mechanism; Python's timeout= is set
+	# to a slightly higher value so the OS doesn't kill the connection before SQLite
+	# has a chance to retry.
+	_BUSY_TIMEOUT_MS = 5000  # milliseconds — used for PRAGMA busy_timeout
+	_CONNECT_TIMEOUT_S = 6   # seconds — Python sqlite3 connect() timeout (must be > busy_timeout/1000)
+
 	def get_connection(self, read_only: bool = False):
 		conn = self.create_connection(read_only)
 		conn.create_function("regexp", 2, regexp)
 		conn.create_function("regexp_replace", 3, regexp_replace)
-		pragmas = {
-			"journal_mode": "WAL",
-			"synchronous": "NORMAL",
-			"busy_timeout": 5000,  # in milliseconds
-		}
+		# Per-connection pragmas (NOT journal_mode — that persists in the DB header
+		# and is set once at site creation in setup_db.py; re-asserting it every
+		# connect triggers avoidable checkpoint/IO work).
 		cursor = conn.cursor()
-		for pragma, value in pragmas.items():
-			cursor.execute(f"PRAGMA {pragma}={value}")
+		cursor.execute(f"PRAGMA synchronous = NORMAL")
+		cursor.execute(f"PRAGMA busy_timeout = {self._BUSY_TIMEOUT_MS}")
+		# Performance profile (fix 3.1)
+		cursor.execute("PRAGMA cache_size = -32768")     # 32 MB page cache
+		cursor.execute("PRAGMA mmap_size = 134217728")   # 128 MB memory-mapped IO
+		cursor.execute("PRAGMA temp_store = MEMORY")     # sorts/temp B-trees in RAM
+		cursor.execute("PRAGMA wal_autocheckpoint = 1000")  # checkpoint every ~4 MB of WAL
+		# Foreign keys: OFF by design — Frappe relies on app-level integrity (fix 3.2)
+		cursor.execute("PRAGMA foreign_keys = OFF")
 		cursor.close()
 		return conn
 
@@ -128,19 +140,17 @@ class SQLiteDatabase(SQLiteExceptionUtil, Database):
 				f"file:{db_path}?mode=ro",
 				uri=True,
 				detect_types=sqlite3.PARSE_DECLTYPES,
-				timeout=15,
+				timeout=self._CONNECT_TIMEOUT_S,
 			)
 		else:
-			conn = sqlite3.connect(db_path, detect_types=sqlite3.PARSE_DECLTYPES, timeout=15)
+			conn = sqlite3.connect(
+				db_path,
+				detect_types=sqlite3.PARSE_DECLTYPES,
+				timeout=self._CONNECT_TIMEOUT_S,
+			)
 
-		conn.create_function("CONCAT_WS", -1, self._concat_ws)
+		# CONCAT_WS is native in SQLite 3.44+ — no Python shim needed (fix 2.4)
 		return conn
-
-	@staticmethod
-	def _concat_ws(separator, *values):
-		if separator is None:
-			separator = ""
-		return str(separator).join(str(value) for value in values if value is not None)
 
 	def get_db_path(self):
 		return Path(frappe.get_site_path()) / "db" / f"{self.cur_db_name}.db"
@@ -430,18 +440,25 @@ class SQLiteDatabase(SQLiteExceptionUtil, Database):
 		"""Get estimated max row size of any table in bytes."""
 		raise NotImplementedError("SQLite does not support getting row size directly.")
 
+	# Compiled once: converts %(name)s → :name for sqlite3 named binding
+	_NAMED_PARAM_RE = re.compile(r"%\((\w+)\)s")
+
 	def execute_query(self, query, values=None):
+		"""Execute query with proper parameter binding.
+
+		For positional params (list/tuple): replace %s → ? and bind normally.
+		For named params (dict): replace %(name)s → :name and let sqlite3 bind
+		the dict natively.  This keeps SQLite's prepared-statement cache warm
+		(every call with the same query template reuses the compiled bytecode)
+		and eliminates the old string-interpolation path that was both a SQL
+		injection surface and a cache-killer.
+		"""
 		query = query.replace("%s", "?")
-		try:
-			if isinstance(values, dict):
-				for k, v in values.items():
-					if isinstance(v, str) and "'" in v:
-						values[k] = self.escape(v)
-					else:
-						values[k] = f"'{v}'"
-				query = query % values
-		except TypeError:
-			pass
+
+		if isinstance(values, dict):
+			# Convert %(name)s → :name and bind via sqlite3 native named params
+			query = self._NAMED_PARAM_RE.sub(r":\1", query)
+			return self._cursor.execute(query, values)
 
 		return self._cursor.execute(query, values or ())
 
@@ -485,7 +502,17 @@ class SQLiteDatabase(SQLiteExceptionUtil, Database):
 			self.read_only = False
 
 		try:
-			self.sql("BEGIN")
+			if getattr(self, "read_only", False):
+				# Read-only: deferred is fine; no write lock needed
+				self.sql("BEGIN")
+			else:
+				# Write transactions use IMMEDIATE so the write lock is acquired
+				# up-front.  This prevents "database is locked" errors that occur
+				# with deferred BEGIN when two workers both read then try to write
+				# (late lock-upgrade collision under WAL + multiple gunicorn workers).
+				# SQLite's single-writer model means write contention degrades to a
+				# clean wait (busy_timeout) instead of a mid-transaction failure.
+				self.sql("BEGIN IMMEDIATE")
 		except sqlite3.OperationalError as e:
 			if not self.is_nested_transaction_error(e):
 				raise e
