@@ -1,6 +1,6 @@
 # STATUS
 
-Last updated: 2026-06-07T01:50Z by Kimi
+Last updated: 2026-06-07T05:44Z by Agent A
 
 ## Current Phase
 Phase 4 — Tauri desktop shell (IN PROGRESS)
@@ -14,8 +14,13 @@ Phase 4 — Tauri desktop shell (IN PROGRESS)
 - PyInstaller binary builds and runs
 - Login, CRUD, persistence all verified
 
-## In Progress
-- Agent A: Tauri scaffold setup
+## Agent A DONE
+- Tauri scaffold created in `desktop_shell/`
+- Sidecar binary copied to `src-tauri/binaries/frappe-sqlite-aarch64-apple-darwin`
+- `tauri.conf.json` configured with window 1400x900, externalBin, build hooks
+- Shell plugin added with sidecar execute permission
+- `cargo check` passes successfully
+- Commit: `28adb62`
 
 ## Next Action
-Launch Agent A to create Tauri scaffold
+Agent B: Write frontend launcher code (`src/main.ts`, `index.html`, `src/style.css`)
