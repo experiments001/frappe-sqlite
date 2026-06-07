@@ -7,10 +7,11 @@
     <title>Frappe SQLite</title>
   </head>
   <body>
-    <div id="app">
-      <h1>Frappe SQLite Desktop</h1>
-      <p>Loading...</p>
+    <div id="loading">
+      <div class="spinner"></div>
+      <p id="loading-text">Starting Frappe SQLite...</p>
     </div>
+    <div id="error" style="display: none;"></div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
