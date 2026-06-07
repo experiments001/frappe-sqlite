@@ -225,9 +225,8 @@ pub fn run() {
     .setup(|app| {
       let menu = build_menu(app)?;
       app.set_menu(menu)?;
-      if let Some(config) = read_config().map_err(|err| tauri::Error::Anyhow(anyhow::anyhow!(err)))? {
-        start_sidecar_process(app.handle(), &config)
-          .map_err(|err| tauri::Error::Anyhow(anyhow::anyhow!(err)))?;
+      if let Some(config) = read_config().map_err(anyhow::Error::msg)? {
+        start_sidecar_process(app.handle(), &config).map_err(anyhow::Error::msg)?;
       }
       Ok(())
     })

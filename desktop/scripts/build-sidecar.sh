@@ -2,19 +2,17 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
-LEGACY_BENCH="${SQLITEPOC_ROOT:-/Users/safwan/Code/docker/fdocker/development/sqlitepoc}"
 OUT="$ROOT/desktop/shell/src-tauri/binaries"
-SRC="$LEGACY_BENCH/dist/frappe-sqlite-macos"
+SRC="$ROOT/dist/frappe-sqlite-macos"
+BUILD_SCRIPT="$ROOT/desktop/runtime/scripts/build_macos_pyinstaller.sh"
 
-if [[ ! -x "$LEGACY_BENCH/desktop_runtime/scripts/build_macos_pyinstaller.sh" ]]; then
-  echo "PyInstaller build script not found: $LEGACY_BENCH/desktop_runtime/scripts/build_macos_pyinstaller.sh" >&2
-  echo "Set SQLITEPOC_ROOT to a bench/runtime checkout that can build the sidecar." >&2
+if [[ ! -x "$BUILD_SCRIPT" ]]; then
+  echo "PyInstaller build script not found or not executable: $BUILD_SCRIPT" >&2
   exit 1
 fi
 
-echo "Building PyInstaller sidecar from: $LEGACY_BENCH"
-echo "Note: this is a transitional bridge until PyInstaller spec/resources live under desktop/runtime."
-(cd "$LEGACY_BENCH" && ./desktop_runtime/scripts/build_macos_pyinstaller.sh)
+echo "Building PyInstaller sidecar from: $ROOT"
+"$BUILD_SCRIPT"
 
 if [[ ! -x "$SRC/frappe-sqlite" || ! -d "$SRC/_internal" ]]; then
   echo "PyInstaller output missing under: $SRC" >&2
