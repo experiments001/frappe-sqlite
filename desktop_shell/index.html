@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="stylesheet" href="/src/style.css" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Frappe SQLite</title>
+  </head>
+  <body>
+    <div id="setup">
+      <form id="setup-form" class="setup-panel">
+        <div class="setup-header">
+          <div class="app-icon">F</div>
+          <h1>Set Up Frappe SQLite</h1>
+        </div>
+        <label>
+          Site Name
+          <input id="site-name" autocomplete="off" required />
+        </label>
+        <label>
+          Administrator Email
+          <input id="admin-email" type="email" autocomplete="email" placeholder="admin@example.com" required />
+        </label>
+        <label>
+          Administrator Password
+          <input id="admin-password" type="password" autocomplete="new-password" required />
+        </label>
+        <label>
+          Display Name
+          <input id="display-name" autocomplete="name" placeholder="Administrator" />
+        </label>
+        <label>
+          Data Folder
+          <input id="data-dir" required />
+        </label>
+        <p id="setup-message"></p>
+        <button type="submit">Create Site</button>
+      </form>
+    </div>
+    <div id="loading" style="display: none;">
+      <div class="spinner"></div>
+      <p id="loading-text">Starting Frappe SQLite...</p>
+    </div>
+    <div id="error" style="display: none;"></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
