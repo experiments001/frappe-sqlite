@@ -239,6 +239,15 @@ class SQLiteDatabase(SQLiteExceptionUtil, Database):
 		and suffix.  Splits on depth-0 commas only so nested parens (CHECK, etc.)
 		are preserved intact.
 
+		Quote-aware: single-quoted string literals ('...') and double-quoted
+		identifiers ("...") are treated as opaque — parens and commas inside
+		them do not affect depth tracking or split decisions.  This is required
+		for correctness on inputs like:
+			DEFAULT '('          (open-paren inside a string literal)
+			"weird,col" TEXT     (comma inside a double-quoted identifier)
+			CHECK (status IN ('a,b','c'))  (would be fine with depth-only, but
+			                                   is also handled correctly here)
+
 		Returns (prefix, parts, suffix) where prefix ends with '(' and suffix
 		starts with ')'.
 		"""
@@ -247,8 +256,25 @@ class SQLiteDatabase(SQLiteExceptionUtil, Database):
 		body = create_sql[first + 1 : last]
 
 		parts, current, depth = [], [], 0
-		for ch in body:
-			if ch == "(":
+		in_quote: str | None = None  # None, "'", or '"'
+		i = 0
+		while i < len(body):
+			ch = body[i]
+
+			if in_quote:
+				current.append(ch)
+				if ch == in_quote:
+					# Check for escaped quote ('' or "")
+					if i + 1 < len(body) and body[i + 1] == in_quote:
+						# Escaped quote — consume both and stay in string
+						i += 1
+						current.append(body[i])
+					else:
+						in_quote = None  # end of quoted region
+			elif ch in ("'", '"'):
+				in_quote = ch
+				current.append(ch)
+			elif ch == "(":
 				depth += 1
 				current.append(ch)
 			elif ch == ")":
@@ -259,6 +285,8 @@ class SQLiteDatabase(SQLiteExceptionUtil, Database):
 				current = []
 			else:
 				current.append(ch)
+			i += 1
+
 		if current:
 			parts.append("".join(current).strip())
 
