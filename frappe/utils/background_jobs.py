@@ -116,6 +116,16 @@ def enqueue(
 	# To handle older implementations
 	is_async = kwargs.pop("async", is_async)
 
+	if frappe.conf.get("queue_backend") == "sync":
+		def run_sync_job():
+			return frappe.call(method, **kwargs)
+
+		if enqueue_after_commit:
+			frappe.db.after_commit.add(run_sync_job)
+			return
+
+		return run_sync_job()
+
 	if deduplicate:
 		if not job_id:
 			frappe.throw(_("`job_id` paramater is required for deduplication."))
@@ -478,6 +488,9 @@ def get_worker_name(queue):
 
 def get_jobs(site=None, queue=None, key="method"):
 	"""Gets jobs per queue or per site or both"""
+	if frappe.conf.get("queue_backend") == "sync":
+		return defaultdict(list)
+
 	jobs_per_site = defaultdict(list)
 
 	def add_to_dict(job):
@@ -543,6 +556,9 @@ def get_queue(qtype: str, is_async: bool = True) -> Queue:
 	:param is_async: Whether the job should be executed asynchronously or in the same process
 	:return: Queue object
 	"""
+	if frappe.conf.get("queue_backend") == "sync":
+		frappe.throw(_("Queue backend is set to sync; Redis queues are unavailable."))
+
 	validate_queue(qtype)
 	return Queue(generate_qname(qtype), connection=get_redis_conn(), is_async=is_async)
 
@@ -573,6 +589,9 @@ def get_redis_conn(username=None, password=None):
 		raise Exception("You need to call frappe.init")
 
 	conf = frappe.get_site_config()
+	if conf.get("queue_backend") == "sync":
+		raise ConnectionError("Queue backend is set to sync; Redis queue connection is unavailable.")
+
 	if not conf.redis_queue:
 		raise Exception("redis_queue missing in common_site_config.json")
 
@@ -613,6 +632,9 @@ def get_redis_conn(username=None, password=None):
 
 def get_redis_connection_without_auth():
 	global _redis_queue_conn
+
+	if frappe.conf.get("queue_backend") == "sync":
+		raise ConnectionError("Queue backend is set to sync; Redis queue connection is unavailable.")
 
 	if not _redis_queue_conn:
 		_redis_queue_conn = RedisQueue.get_connection()

@@ -103,18 +103,30 @@ class SQLiteDatabase(SQLiteExceptionUtil, Database):
 	default_port = None
 	MAX_ROW_SIZE_LIMIT = None
 
+	# Single source of truth for write-lock wait time (fix 4.2).
+	# PRAGMA busy_timeout is the actual SQLite mechanism; Python's timeout= is set
+	# to a slightly higher value so the OS doesn't kill the connection before SQLite
+	# has a chance to retry.
+	_BUSY_TIMEOUT_MS = 5000  # milliseconds — used for PRAGMA busy_timeout
+	_CONNECT_TIMEOUT_S = 6   # seconds — Python sqlite3 connect() timeout (must be > busy_timeout/1000)
+
 	def get_connection(self, read_only: bool = False):
 		conn = self.create_connection(read_only)
 		conn.create_function("regexp", 2, regexp)
 		conn.create_function("regexp_replace", 3, regexp_replace)
-		pragmas = {
-			"journal_mode": "WAL",
-			"synchronous": "NORMAL",
-			"busy_timeout": 5000,  # in milliseconds
-		}
+		# Per-connection pragmas (NOT journal_mode — that persists in the DB header
+		# and is set once at site creation in setup_db.py; re-asserting it every
+		# connect triggers avoidable checkpoint/IO work).
 		cursor = conn.cursor()
-		for pragma, value in pragmas.items():
-			cursor.execute(f"PRAGMA {pragma}={value}")
+		cursor.execute(f"PRAGMA synchronous = NORMAL")
+		cursor.execute(f"PRAGMA busy_timeout = {self._BUSY_TIMEOUT_MS}")
+		# Performance profile (fix 3.1)
+		cursor.execute("PRAGMA cache_size = -32768")     # 32 MB page cache
+		cursor.execute("PRAGMA mmap_size = 134217728")   # 128 MB memory-mapped IO
+		cursor.execute("PRAGMA temp_store = MEMORY")     # sorts/temp B-trees in RAM
+		cursor.execute("PRAGMA wal_autocheckpoint = 1000")  # checkpoint every ~4 MB of WAL
+		# Foreign keys: OFF by design — Frappe relies on app-level integrity (fix 3.2)
+		cursor.execute("PRAGMA foreign_keys = OFF")
 		cursor.close()
 		return conn
 
@@ -124,13 +136,21 @@ class SQLiteDatabase(SQLiteExceptionUtil, Database):
 		sqlite3.register_converter("date", lambda x: date.fromisoformat(x.decode()))
 		sqlite3.register_converter("time", lambda x: time.fromisoformat(x.decode()))
 		if read_only:
-			return sqlite3.connect(
+			conn = sqlite3.connect(
 				f"file:{db_path}?mode=ro",
 				uri=True,
 				detect_types=sqlite3.PARSE_DECLTYPES,
-				timeout=15,
+				timeout=self._CONNECT_TIMEOUT_S,
 			)
-		return sqlite3.connect(db_path, detect_types=sqlite3.PARSE_DECLTYPES, timeout=15)
+		else:
+			conn = sqlite3.connect(
+				db_path,
+				detect_types=sqlite3.PARSE_DECLTYPES,
+				timeout=self._CONNECT_TIMEOUT_S,
+			)
+
+		# CONCAT_WS is native in SQLite 3.44+ — no Python shim needed (fix 2.4)
+		return conn
 
 	def get_db_path(self):
 		return Path(frappe.get_site_path()) / "db" / f"{self.cur_db_name}.db"
@@ -211,83 +231,192 @@ class SQLiteDatabase(SQLiteExceptionUtil, Database):
 		table_name = get_table_name(doctype)
 		return self.sql(f"PRAGMA table_info(`{table_name}`)")
 
+	# ── helpers for change_column_type ──────────────────────────────────────
+
+	@staticmethod
+	def _split_create_table_body(create_sql: str) -> tuple[str, list[str], str]:
+		"""Split CREATE TABLE sql into prefix, list of column/constraint clauses,
+		and suffix.  Splits on depth-0 commas only so nested parens (CHECK, etc.)
+		are preserved intact.
+
+		Quote-aware: single-quoted string literals ('...') and double-quoted
+		identifiers ("...") are treated as opaque — parens and commas inside
+		them do not affect depth tracking or split decisions.  This is required
+		for correctness on inputs like:
+			DEFAULT '('          (open-paren inside a string literal)
+			"weird,col" TEXT     (comma inside a double-quoted identifier)
+			CHECK (status IN ('a,b','c'))  (would be fine with depth-only, but
+			                                   is also handled correctly here)
+
+		Returns (prefix, parts, suffix) where prefix ends with '(' and suffix
+		starts with ')'.
+		"""
+		first = create_sql.index("(")
+		last = create_sql.rindex(")")
+		body = create_sql[first + 1 : last]
+
+		parts, current, depth = [], [], 0
+		in_quote: str | None = None  # None, "'", or '"'
+		i = 0
+		while i < len(body):
+			ch = body[i]
+
+			if in_quote:
+				current.append(ch)
+				if ch == in_quote:
+					# Check for escaped quote ('' or "")
+					if i + 1 < len(body) and body[i + 1] == in_quote:
+						# Escaped quote — consume both and stay in string
+						i += 1
+						current.append(body[i])
+					else:
+						in_quote = None  # end of quoted region
+			elif ch in ("'", '"'):
+				in_quote = ch
+				current.append(ch)
+			elif ch == "(":
+				depth += 1
+				current.append(ch)
+			elif ch == ")":
+				depth -= 1
+				current.append(ch)
+			elif ch == "," and depth == 0:
+				parts.append("".join(current).strip())
+				current = []
+			else:
+				current.append(ch)
+			i += 1
+
+		if current:
+			parts.append("".join(current).strip())
+
+		return create_sql[: first + 1], parts, create_sql[last:]
+
+	@staticmethod
+	def _patch_column_in_parts(
+		parts: list[str], column: str, new_type: str, nullable: bool
+	) -> tuple[list[str], bool]:
+		"""Find the clause for *column* in *parts* and replace its type token.
+		Also enforces nullability: adds/removes NOT NULL based on *nullable*.
+		Returns (new_parts, found_flag).
+		"""
+		# Matches: optional-quote column-name optional-quote whitespace TYPE
+		col_pat = re.compile(
+			rf'^([`"\[]?{re.escape(column)}[`"\]]?\s+)(\S+)(.*)',
+			re.IGNORECASE | re.DOTALL,
+		)
+		new_parts = list(parts)
+		for i, part in enumerate(parts):
+			m = col_pat.match(part.strip())
+			if m:
+				prefix_ws, _old_type, rest = m.group(1), m.group(2), m.group(3)
+				# Adjust NOT NULL in the constraint tail
+				if nullable:
+					rest = re.sub(r"\bNOT\s+NULL\b", "", rest, flags=re.IGNORECASE).strip()
+				else:
+					if not re.search(r"\bNOT\s+NULL\b", rest, re.IGNORECASE):
+						rest = " NOT NULL" + rest
+				new_parts[i] = f"{part[:part.index(part.strip()[0])]}{prefix_ws}{new_type}{rest}"
+				return new_parts, True
+		return new_parts, False
+
 	def change_column_type(
 		self, doctype: str, column: str, type: str, nullable: bool = False
 	) -> list | tuple:
-		"""Change column type by recreating the table"""
+		"""Change a column's type while preserving the full schema.
+
+		Uses the original CREATE TABLE SQL from sqlite_master as the source of
+		truth so PRIMARY KEY, AUTOINCREMENT, DEFAULT values, CHECK constraints,
+		and all table-level constraints survive the rebuild.  Indexes and
+		triggers are saved separately and recreated after the rename.
+
+		This is the SQLite-recommended 12-step procedure adapted for Frappe.
+		"""
 		table_name = get_table_name(doctype)
 		temp_table = f"{table_name}_new"
 
-		# Get current table column definitions
-		columns = []
-		column_exists = False
-		for col in self.sql(f"PRAGMA table_info(`{table_name}`)", as_dict=1):
-			if col["name"] == column:
-				column_exists = True
-				null_str = "" if nullable else " NOT NULL"
-				columns.append(f"`{col['name']}` {type}{null_str}")
-			else:
-				null_str = "" if col["notnull"] == 0 else " NOT NULL"
-				columns.append(f"`{col['name']}` {col['type']}{null_str}")
-
-		# Check that the column exists
-		if not column_exists:
+		# 1. Verify column exists
+		col_names = [c["name"] for c in self.sql(f"PRAGMA table_info(`{table_name}`)", as_dict=1)]
+		if column not in col_names:
 			raise frappe.InvalidColumnName(f"Column {column} does not exist in table {table_name}")
 
-		# Create new table
-		create_table = f"CREATE TABLE `{temp_table}` (\n{','.join(columns)}\n)"
-		self.sql_ddl(create_table)
+		# 2. Fetch the original CREATE TABLE SQL — this carries PK, AUTOINCREMENT,
+		#    DEFAULT, CHECK, and all table-level constraints that PRAGMA table_info
+		#    does NOT return.
+		original_sql_rows = self.sql(
+			"SELECT sql FROM sqlite_master WHERE type='table' AND name=?",
+			(table_name,),
+			as_dict=1,
+		)
+		if not original_sql_rows or not original_sql_rows[0]["sql"]:
+			raise frappe.ValidationError(f"Cannot find CREATE TABLE sql for {table_name}")
+		original_sql = original_sql_rows[0]["sql"]
 
-		# Copy data
-		column_names = [
-			f"`{col['name']}`" for col in self.sql(f"PRAGMA table_info(`{table_name}`)", as_dict=1)
+		# 3. Parse the body, patch the target column's type and nullability
+		prefix, parts, suffix = self._split_create_table_body(original_sql)
+		parts, found = self._patch_column_in_parts(parts, column, type, nullable)
+		if not found:
+			raise frappe.InvalidColumnName(
+				f"Column {column} found in PRAGMA but not in CREATE TABLE sql — schema inconsistency"
+			)
+
+		# 4. Build CREATE TABLE for the temp table (substitute name)
+		new_body = ",\n".join(parts)
+		# Replace the original table name in the CREATE TABLE header with temp_table
+		temp_create = re.sub(
+			r"(CREATE\s+TABLE\s+)[`\"\[]?" + re.escape(table_name) + r"[`\"\]]?",
+			rf'\1`{temp_table}`',
+			prefix,
+			count=1,
+			flags=re.IGNORECASE,
+		) + new_body + suffix
+
+		# 5. Save all indexes and triggers BEFORE the drop
+		saved_indexes = [
+			row["sql"]
+			for row in self.sql(
+				"SELECT sql FROM sqlite_master WHERE type='index' AND tbl_name=? AND sql IS NOT NULL",
+				(table_name,),
+				as_dict=1,
+			)
 		]
-		column_list = ", ".join(column_names)
-		self.sql_ddl(f"INSERT INTO `{temp_table}` SELECT {column_list} FROM `{table_name}`")
+		saved_triggers = [
+			row["sql"]
+			for row in self.sql(
+				"SELECT sql FROM sqlite_master WHERE type='trigger' AND tbl_name=? AND sql IS NOT NULL",
+				(table_name,),
+				as_dict=1,
+			)
+		]
 
-		# Drop old table and rename new table
+		# 6–9. Create temp, copy, drop original, rename
+		self.sql_ddl(temp_create)
+		col_list = ", ".join(f"`{c}`" for c in col_names)
+		self.sql_ddl(f"INSERT INTO `{temp_table}` SELECT {col_list} FROM `{table_name}`")
 		self.sql_ddl(f"DROP TABLE `{table_name}`")
 		self.sql_ddl(f"ALTER TABLE `{temp_table}` RENAME TO `{table_name}`")
 
+		# 10–11. Restore indexes and triggers
+		for sql_stmt in saved_indexes + saved_triggers:
+			self.sql_ddl(sql_stmt)
+
 	def rename_column(self, doctype: str, old_column_name: str, new_column_name: str):
-		"""Rename column by recreating the table"""
+		"""Rename a column using native ALTER TABLE … RENAME COLUMN (SQLite 3.25+).
+		Preserves all indexes, defaults, and constraints automatically."""
 		table_name = get_table_name(doctype)
-		temp_table = f"{table_name}_new"
 
-		# Get current table column definitions
-		columns = []
-		column_exists = False
-		for col in self.sql(f"PRAGMA table_info(`{table_name}`)", as_dict=1):
-			if col["name"] == old_column_name:
-				column_exists = True
-				null_str = "" if col["notnull"] == 0 else " NOT NULL"
-				columns.append(f"`{new_column_name}` {col['type']}{null_str}")
-			else:
-				null_str = "" if col["notnull"] == 0 else " NOT NULL"
-				columns.append(f"`{col['name']}` {col['type']}{null_str}")
-
+		# Verify column exists
+		column_exists = any(
+			col["name"] == old_column_name
+			for col in self.sql(f"PRAGMA table_info(`{table_name}`)", as_dict=1)
+		)
 		if not column_exists:
 			raise frappe.InvalidColumnName(f"Column {old_column_name} does not exist in table {table_name}")
 
-		# Create new table
-		create_table = f"CREATE TABLE `{temp_table}` (\n{','.join(columns)}\n)"
-		self.sql_ddl(create_table)
-
-		# Get list of columns for SELECT, replacing old name with new
-		column_names = []
-		for col in self.sql(f"PRAGMA table_info(`{table_name}`)", as_dict=1):
-			if col["name"] == old_column_name:
-				column_names.append(f"`{old_column_name}` as `{new_column_name}`")
-			else:
-				column_names.append(f"`{col['name']}`")
-
-		# Copy data
-		column_list = ", ".join(column_names)
-		self.sql_ddl(f"INSERT INTO `{temp_table}` SELECT {column_list} FROM `{table_name}`")
-
-		# Drop old table and rename new table
-		self.sql_ddl(f"DROP TABLE `{table_name}`")
-		self.sql_ddl(f"ALTER TABLE `{temp_table}` RENAME TO `{table_name}`")
+		# Native rename — no rebuild, no index loss (SQLite 3.25+)
+		self.sql(
+			f"ALTER TABLE `{table_name}` RENAME COLUMN `{old_column_name}` TO `{new_column_name}`"
+		)
 
 	def create_auth_table(self):
 		self.sql_ddl(
@@ -364,7 +493,7 @@ class SQLiteDatabase(SQLiteExceptionUtil, Database):
 
 		index_name = index_name or self.get_index_name(fields)
 		table_name = get_table_name(doctype)
-		self.commit()
+		# No explicit commit needed — DDL is transactional on SQLite
 		self.sql(f"CREATE INDEX IF NOT EXISTS `{index_name}` ON `{table_name}` ({', '.join(fields)})")
 
 		# Ensure that DB migration doesn't clear this index, assuming this is manually added
@@ -391,7 +520,7 @@ class SQLiteDatabase(SQLiteExceptionUtil, Database):
 		sql_create_unique = (
 			f"CREATE UNIQUE INDEX IF NOT EXISTS `{constraint_name}` ON `{table_name}` ({columns})"
 		)
-		self.commit()  # commit before creating index
+		# No explicit commit needed — DDL is transactional on SQLite
 		self.sql(sql_create_unique)
 
 	def updatedb(self, doctype, meta=None):
@@ -427,18 +556,25 @@ class SQLiteDatabase(SQLiteExceptionUtil, Database):
 		"""Get estimated max row size of any table in bytes."""
 		raise NotImplementedError("SQLite does not support getting row size directly.")
 
+	# Compiled once: converts %(name)s → :name for sqlite3 named binding
+	_NAMED_PARAM_RE = re.compile(r"%\((\w+)\)s")
+
 	def execute_query(self, query, values=None):
+		"""Execute query with proper parameter binding.
+
+		For positional params (list/tuple): replace %s → ? and bind normally.
+		For named params (dict): replace %(name)s → :name and let sqlite3 bind
+		the dict natively.  This keeps SQLite's prepared-statement cache warm
+		(every call with the same query template reuses the compiled bytecode)
+		and eliminates the old string-interpolation path that was both a SQL
+		injection surface and a cache-killer.
+		"""
 		query = query.replace("%s", "?")
-		try:
-			if isinstance(values, dict):
-				for k, v in values.items():
-					if isinstance(v, str) and "'" in v:
-						values[k] = self.escape(v)
-					else:
-						values[k] = f"'{v}'"
-				query = query % values
-		except TypeError:
-			pass
+
+		if isinstance(values, dict):
+			# Convert %(name)s → :name and bind via sqlite3 native named params
+			query = self._NAMED_PARAM_RE.sub(r":\1", query)
+			return self._cursor.execute(query, values)
 
 		return self._cursor.execute(query, values or ())
 
@@ -454,9 +590,18 @@ class SQLiteDatabase(SQLiteExceptionUtil, Database):
 		return super().sql(*args, **kwargs)
 
 	def sql_ddl(self, query, *args, **kwargs):
-		"""Execute DDL query."""
-		super().sql_ddl(query, *args, **kwargs)
-		self.commit()
+		"""Execute DDL query.
+
+		SQLite DDL is fully transactional — CREATE/ALTER/DROP can run inside
+		BEGIN…COMMIT and roll back cleanly.  We intentionally do NOT auto-commit
+		around DDL here; the caller owns the transaction boundary.  This lets a
+		multi-step migration (e.g. DocType sync) either fully apply or fully roll
+		back, which is the opposite of the MariaDB-era behaviour this replaced.
+		"""
+		# Only execute the DDL; do not force a commit.
+		# (The base sql_ddl calls self.commit() then self.sql() — we bypass that
+		#  by calling self.sql() directly here so DDL stays in the current txn.)
+		self.sql(query, *args, **kwargs)
 
 	def begin(self, *, read_only=False):
 		if read_only or frappe.flags.read_only:
@@ -473,7 +618,17 @@ class SQLiteDatabase(SQLiteExceptionUtil, Database):
 			self.read_only = False
 
 		try:
-			self.sql("BEGIN")
+			if getattr(self, "read_only", False):
+				# Read-only: deferred is fine; no write lock needed
+				self.sql("BEGIN")
+			else:
+				# Write transactions use IMMEDIATE so the write lock is acquired
+				# up-front.  This prevents "database is locked" errors that occur
+				# with deferred BEGIN when two workers both read then try to write
+				# (late lock-upgrade collision under WAL + multiple gunicorn workers).
+				# SQLite's single-writer model means write contention degrades to a
+				# clean wait (busy_timeout) instead of a mid-transaction failure.
+				self.sql("BEGIN IMMEDIATE")
 		except sqlite3.OperationalError as e:
 			if not self.is_nested_transaction_error(e):
 				raise e
@@ -550,8 +705,13 @@ class SQLiteDatabase(SQLiteExceptionUtil, Database):
 		self.sql_ddl(f"DELETE FROM sqlite_sequence WHERE name='{table}'")
 
 	def check_implicit_commit(self, query: str, query_type: str):
-		if query_type in IMPLICIT_COMMIT_QUERY_TYPES and self.transaction_writes:
-			raise ImplicitCommitError("This statement can cause implicit commit", query)
+		"""SQLite DDL is fully transactional — no implicit commit on DDL.
+		This override intentionally does nothing; DDL stays in the current
+		transaction and will roll back cleanly if the migration fails.
+		(MariaDB/Postgres raise ImplicitCommitError here because their DDL
+		auto-commits; SQLite doesn't have that constraint.)
+		"""
+		pass  # no-op: DDL is transactional on SQLite
 
 
 def modify_query(query):
