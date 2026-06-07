@@ -10,9 +10,13 @@ pkill -f "frappe-sqlite" 2>/dev/null || true
 sleep 1
 
 echo "Opening app..."
-nohup "$APP" > /tmp/frappe-e2e.log 2>&1 &
-PID=$!
+# Run detached from shell job control to avoid macOS job-control kills
+(
+  "$APP" > /tmp/frappe-e2e.log 2>&1 &
+  disown
+)
 
+# Give the sidecar time to seed the site and start Frappe
 sleep 35
 
 echo "Checking HTTP on port 8765..."
@@ -23,12 +27,9 @@ else
   echo "FAILED — Login page not found"
   echo "--- App log ---"
   cat /tmp/frappe-e2e.log || true
-  kill $PID 2>/dev/null || true
   pkill -f "frappe-sqlite" 2>/dev/null || true
   exit 1
 fi
 
-kill $PID 2>/dev/null || true
-sleep 1
 pkill -f "frappe-sqlite" 2>/dev/null || true
 echo "Cleanup complete"
