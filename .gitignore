@@ -29,3 +29,6 @@ sites/*/private/backups/
 
 # OS
 .DS_Store
+
+# Documentation lives in a separate repo: experiments001/frappe-sqlite-doc
+docs/
