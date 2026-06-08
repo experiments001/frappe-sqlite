@@ -6,8 +6,10 @@
 *.swp
 *.egg-info
 dist/
-# Documentation lives in a separate repo: experiments001/frappe-sqlite-doc
-docs/
+
+# docs/ intentionally excluded except mobile plans
+docs/*
+!docs/mobile/
 # build/
 frappe/docs/current
 frappe/public/dist
