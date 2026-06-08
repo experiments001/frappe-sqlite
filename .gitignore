@@ -6,6 +6,8 @@
 *.swp
 *.egg-info
 dist/
+# Documentation lives in a separate repo: experiments001/frappe-sqlite-doc
+docs/
 # build/
 frappe/docs/current
 frappe/public/dist

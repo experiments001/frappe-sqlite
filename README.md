@@ -42,3 +42,12 @@ desktop/
 Desktop is a consumer of the SQLite runtime. It should not define core framework behavior.
 
 See [desktop/README.md](desktop/README.md).
+
+## Documentation
+
+Project documentation (design docs, trackers, plans) lives in a separate repository:
+
+- **Repo:** `experiments001/frappe-sqlite-doc`
+- **Clone locally:** `git clone git@github.com:experiments001/frappe-sqlite-doc.git docs`
+
+If you need docs, pull them via the repo above. They are intentionally kept out of this repository to keep the history lean.
