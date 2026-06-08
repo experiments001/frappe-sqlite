@@ -11,6 +11,18 @@ from frappe.desktop.migrate import migrate_site
 from frappe.desktop.site_manager import list_sites
 
 
+FRAPPE_ORG_APP_SUGGESTIONS = {
+	"frappe": "https://github.com/frappe/frappe.git",
+	"erpnext": "https://github.com/frappe/erpnext.git",
+	"crm": "https://github.com/frappe/crm.git",
+	"helpdesk": "https://github.com/frappe/helpdesk.git",
+	"hrms": "https://github.com/frappe/hrms.git",
+	"lms": "https://github.com/frappe/lms.git",
+	"builder": "https://github.com/frappe/builder.git",
+	"insights": "https://github.com/frappe/insights.git",
+}
+
+
 def _apps_txt(sites_path: Path) -> Path:
 	return sites_path / "apps.txt"
 
@@ -39,6 +51,25 @@ def _git_info(path: Path | None) -> dict[str, str | None]:
 	return {"branch": branch, "commit": commit}
 
 
+def resolve_app_source(source: str) -> dict[str, str]:
+	"""Resolve an app source from a local path, git URL, GitHub slug, or friendly Frappe app name."""
+	source_path = Path(source).expanduser()
+	if source_path.exists():
+		return {"app": source_path.name, "source": str(source_path.resolve()), "kind": "local_path"}
+	if source.startswith(("http://", "https://", "git@", "ssh://")):
+		app = source.rstrip("/").rsplit("/", 1)[-1].replace(".git", "")
+		return {"app": app, "source": source, "kind": "git_url"}
+	if "/" in source:
+		owner, repo = source.rstrip("/").split("/", 1)
+		return {"app": repo, "source": f"https://github.com/{owner}/{repo}.git", "kind": "github_slug"}
+	app = source.lower().replace("_", "-")
+	return {
+		"app": app,
+		"source": FRAPPE_ORG_APP_SUGGESTIONS.get(app, f"https://github.com/frappe/{app}.git"),
+		"kind": "frappe_org_name",
+	}
+
+
 def list_apps(sites_path: str | Path | None = None) -> dict[str, Any]:
 	root = resolve_sites_path(sites_path)
 	available = []
@@ -46,7 +77,13 @@ def list_apps(sites_path: str | Path | None = None) -> dict[str, Any]:
 		path = _app_path(app)
 		available.append({"app": app, "path": str(path) if path else None, **_git_info(path)})
 	installed_by_site = {site["site_name"]: site["installed_apps"] for site in list_sites(root)}
-	return {"available_apps": available, "installed_by_site": installed_by_site}
+	return {
+		"available_apps": available,
+		"installed_by_site": installed_by_site,
+		"suggested_apps": [
+			{"app": app, "source": source} for app, source in sorted(FRAPPE_ORG_APP_SUGGESTIONS.items()) if app != "frappe"
+		],
+	}
 
 
 def add_app(source: str, branch: str | None = None, sites_path: str | Path | None = None) -> dict[str, Any]:
@@ -54,25 +91,25 @@ def add_app(source: str, branch: str | None = None, sites_path: str | Path | Non
 	root.mkdir(parents=True, exist_ok=True)
 	apps_txt = _apps_txt(root)
 	apps = set(_available_from_apps_txt(root))
-	source_path = Path(source).expanduser()
-	if source_path.exists():
-		app_name = source_path.name
+	resolved = resolve_app_source(source)
+	app_name = resolved["app"]
+	if resolved["kind"] == "local_path":
 		target = bench_root() / "apps" / app_name
 		target.parent.mkdir(parents=True, exist_ok=True)
 		if not target.exists():
-			target.symlink_to(source_path.resolve(), target_is_directory=True)
+			target.symlink_to(Path(resolved["source"]), target_is_directory=True)
 	else:
-		app_name = source.rstrip("/").rsplit("/", 1)[-1].replace(".git", "")
 		target = bench_root() / "apps" / app_name
 		target.parent.mkdir(parents=True, exist_ok=True)
-		command = ["git", "clone", source, str(target)]
+		command = ["git", "clone", resolved["source"], str(target)]
 		if branch:
 			command[2:2] = ["--branch", branch]
-		run_command(command, cwd=bench_root())
+		if not target.exists():
+			run_command(command, cwd=bench_root())
 	apps.add(app_name)
 	apps_txt.parent.mkdir(parents=True, exist_ok=True)
 	apps_txt.write_text("\n".join(sorted(apps)) + "\n")
-	return {"app": app_name, "available": True}
+	return {"app": app_name, "available": True, "source": resolved["source"], "kind": resolved["kind"]}
 
 
 def _installed_apps(site_name: str, sites_path: Path) -> list[str]:
@@ -84,7 +121,7 @@ def install_app(site_name: str, app_name: str, sites_path: str | Path | None = N
 	if not site_path(site_name, root).exists():
 		raise FileNotFoundError(f"Site missing: {site_name}")
 	if app_name not in _available_from_apps_txt(root):
-		raise ValueError(f"App is not available in apps.txt: {app_name}")
+		add_app(app_name, sites_path=root)
 	import frappe
 	from frappe.installer import install_app as frappe_install_app
 
@@ -145,12 +182,17 @@ def _main() -> None:
 	parser = argparse.ArgumentParser(description="Local SQLite app lifecycle helpers")
 	sub = parser.add_subparsers(dest="command", required=True)
 	sub.add_parser("list")
+	add = sub.add_parser("add")
+	add.add_argument("source")
+	add.add_argument("--branch")
 	install = sub.add_parser("install")
 	install.add_argument("site")
 	install.add_argument("app")
 	args = parser.parse_args()
 	if args.command == "list":
 		print(json.dumps(list_apps(), indent=2))
+	elif args.command == "add":
+		print(json.dumps(add_app(args.source, branch=args.branch), indent=2))
 	elif args.command == "install":
 		print(json.dumps(install_app(args.site, args.app), indent=2))
 

@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
+import os
 import shutil
 import sqlite3
 import tarfile
@@ -22,6 +24,17 @@ from frappe.desktop._utils import (
 	copy_site_tree,
 	write_json,
 )
+
+
+DEFAULT_SITE_SETUP = {
+	"language": "English",
+	"country": "United States",
+	"currency": "USD",
+	"timezone": "America/New_York",
+	"full_name": "Administrator",
+	"email": "admin@example.com",
+	"enable_telemetry": 0,
+}
 
 
 def _copy_sqlite_skeleton(destination: Path) -> None:
@@ -65,13 +78,109 @@ def list_sites(sites_path: str | Path | None = None) -> list[dict[str, Any]]:
 	return sites
 
 
-def create_site(site_name: str, apps: list[str] | None = None, force: bool = False, sites_path: str | Path | None = None) -> dict[str, Any]:
+def _complete_setup_wizard(site_name: str, setup: dict[str, Any], sites_path: Path) -> None:
+	import frappe
+	from frappe.desk.page.setup_wizard.setup_wizard import setup_complete
+
+	old_cwd = Path.cwd()
+	try:
+		os.chdir(sites_path)
+		frappe.init(site=site_name, sites_path=".")
+		try:
+			frappe.connect()
+			frappe.local.form_dict = frappe._dict()
+			frappe.set_user("Administrator")
+			setup_complete(setup)
+			frappe.db.commit()
+		finally:
+			frappe.destroy()
+	finally:
+		os.chdir(old_cwd)
+
+
+def _create_with_frappe_installer(
+	site_name: str,
+	apps: list[str] | None,
+	force: bool,
+	sites_path: Path,
+	admin_password: str | None,
+) -> None:
+	import frappe
+	from frappe.installer import _new_site
+
+	old_cwd = Path.cwd()
+	sites_path.mkdir(parents=True, exist_ok=True)
+	(sites_path.parent / "logs").mkdir(parents=True, exist_ok=True)
+	(sites_path.parent / "archived" / "sites").mkdir(parents=True, exist_ok=True)
+	(sites_path / site_name).mkdir(parents=True, exist_ok=True)
+	(sites_path / "apps.txt").write_text("\n".join(["frappe", *(apps or [])]) + "\n")
+	write_json(sites_path / site_name / "site_config.json", {"db_type": "sqlite", "db_name": site_name})
+	try:
+		os.chdir(sites_path)
+		_new_site(
+			db_name=site_name,
+			site=site_name,
+			admin_password=admin_password,
+			install_apps=apps or [],
+			force=True,
+			db_type="sqlite",
+		)
+		frappe.destroy()
+	finally:
+		with contextlib.suppress(Exception):
+			frappe.destroy()
+		os.chdir(old_cwd)
+
+
+def create_site(
+	site_name: str,
+	apps: list[str] | None = None,
+	force: bool = False,
+	sites_path: str | Path | None = None,
+	*,
+	admin_password: str | None = None,
+	language: str | None = None,
+	country: str | None = None,
+	currency: str | None = None,
+	timezone: str | None = None,
+	full_name: str | None = None,
+	email: str | None = None,
+	complete_setup: bool = False,
+	use_frappe_installer: bool = False,
+) -> dict[str, Any]:
 	root = resolve_sites_path(sites_path)
 	target = site_path(site_name, root)
 	if target.exists():
 		if not force:
 			raise FileExistsError(f"Site already exists: {target}")
 		shutil.rmtree(target)
+
+	setup = dict(DEFAULT_SITE_SETUP)
+	setup.update({k: v for k, v in {
+		"language": language,
+		"country": country,
+		"currency": currency,
+		"timezone": timezone,
+		"full_name": full_name,
+		"email": email,
+		"password": admin_password,
+	}.items() if v is not None})
+
+	if use_frappe_installer:
+		_create_with_frappe_installer(site_name, apps, force, root, admin_password)
+		config = apply_local_sqlite_config(site_name, root)
+		config["first_run_setup"] = {k: v for k, v in setup.items() if k != "password"}
+		write_json(target / "site_config.json", config)
+		if complete_setup:
+			_complete_setup_wizard(site_name, setup, root)
+		return {
+			"site_name": site_name,
+			"site_path": str(target),
+			"db_path": str(db_path_for(site_name, root)),
+			"created": True,
+			"mode": "frappe_installer",
+			"setup_complete": complete_setup,
+		}
 
 	(target / "db").mkdir(parents=True, exist_ok=True)
 	(target / "public" / "files").mkdir(parents=True, exist_ok=True)
@@ -81,8 +190,16 @@ def create_site(site_name: str, apps: list[str] | None = None, force: bool = Fal
 	_copy_sqlite_skeleton(db_path_for(site_name, root))
 	if apps:
 		config["installed_apps"] = sorted(set(apps))
-		write_json(target / "site_config.json", config)
-	return {"site_name": site_name, "site_path": str(target), "db_path": str(db_path_for(site_name, root)), "created": True}
+	config["first_run_setup"] = {k: v for k, v in setup.items() if k != "password"}
+	write_json(target / "site_config.json", config)
+	return {
+		"site_name": site_name,
+		"site_path": str(target),
+		"db_path": str(db_path_for(site_name, root)),
+		"created": True,
+		"mode": "sqlite_skeleton",
+		"setup_complete": False,
+	}
 
 
 def remove_site(site_name: str, force: bool = False, sites_path: str | Path | None = None) -> dict[str, Any]:
@@ -97,6 +214,45 @@ def remove_site(site_name: str, force: bool = False, sites_path: str | Path | No
 	archived = archive_root / f"{site_name}.{int(time.time())}"
 	shutil.move(str(target), str(archived))
 	return {"site_name": site_name, "removed": True, "mode": "archived", "archive_path": str(archived)}
+
+
+def drop_site(
+	site_name: str,
+	force: bool = False,
+	no_backup: bool = True,
+	archived_sites_path: str | Path | None = None,
+	sites_path: str | Path | None = None,
+) -> dict[str, Any]:
+	"""Drop a local SQLite site using Frappe-like archive semantics.
+
+	SQLite has no separate database user to drop; the DB is inside the site tree.
+	By default this archives the site under `archived/sites`, mirroring bench
+	`drop-site`. Pass `force=True` to delete the local site directory outright.
+	"""
+	if not no_backup:
+		archive = export_site(site_name, Path(archived_sites_path or resolve_sites_path(sites_path).parent / "archived" / "backups") / f"{site_name}.tar.gz", sites_path)
+	else:
+		archive = None
+	if force:
+		removed = remove_site(site_name, force=True, sites_path=sites_path)
+	else:
+		root = resolve_sites_path(sites_path)
+		archive_root = Path(archived_sites_path).expanduser().resolve() if archived_sites_path else root.parent / "archived" / "sites"
+		archive_root.mkdir(parents=True, exist_ok=True)
+		target = site_path(site_name, root)
+		if not target.exists():
+			removed = {"site_name": site_name, "removed": False, "reason": "missing"}
+		else:
+			archived = archive_root / site_name
+			count = 0
+			final = archived
+			while final.exists():
+				count += 1
+				final = archive_root / f"{site_name}{count}"
+			shutil.move(str(target), str(final))
+			removed = {"site_name": site_name, "removed": True, "mode": "archived", "archive_path": str(final)}
+	removed["backup"] = archive
+	return removed
 
 
 def clone_site(source_site: str, target_site: str, force: bool = False, sites_path: str | Path | None = None) -> dict[str, Any]:
@@ -182,11 +338,34 @@ def _main() -> None:
 	create = sub.add_parser("create")
 	create.add_argument("site")
 	create.add_argument("--force", action="store_true")
+	create.add_argument("--full-install", action="store_true", help="Use Frappe's full SQLite new-site installer")
+	create.add_argument("--complete-setup", action="store_true", help="Run setup wizard completion after full install")
+	create.add_argument("--admin-password")
+	create.add_argument("--timezone")
+	create.add_argument("--country")
+	create.add_argument("--currency")
+	create.add_argument("--language")
+	drop = sub.add_parser("drop")
+	drop.add_argument("site")
+	drop.add_argument("--force", action="store_true")
+	drop.add_argument("--with-backup", action="store_true")
 	args = parser.parse_args()
 	if args.command == "list":
 		print(json.dumps(list_sites(), indent=2))
 	elif args.command == "create":
-		print(json.dumps(create_site(args.site, force=args.force), indent=2))
+		print(json.dumps(create_site(
+			args.site,
+			force=args.force,
+			admin_password=args.admin_password,
+			timezone=args.timezone,
+			country=args.country,
+			currency=args.currency,
+			language=args.language,
+			complete_setup=args.complete_setup,
+			use_frappe_installer=args.full_install,
+		), indent=2))
+	elif args.command == "drop":
+		print(json.dumps(drop_site(args.site, force=args.force, no_backup=not args.with_backup), indent=2))
 
 
 if __name__ == "__main__":

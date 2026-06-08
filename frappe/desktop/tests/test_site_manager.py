@@ -3,7 +3,8 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-from frappe.desktop.site_manager import clone_site, create_site, export_site, import_site, list_sites, remove_site
+from frappe.desktop.app_manager import resolve_app_source
+from frappe.desktop.site_manager import clone_site, create_site, drop_site, export_site, import_site, list_sites, remove_site
 
 
 def _make_db(path: Path) -> None:
@@ -43,3 +44,25 @@ def test_site_lifecycle_roundtrip(tmp_path: Path) -> None:
 	assert imported["health"] == "ok"
 	assert "gamma.localhost" in {site["site_name"] for site in list_sites(sites)}
 
+
+def test_drop_site_archives_like_bench(tmp_path: Path) -> None:
+	sites = tmp_path / "sites"
+	create_site("drop.localhost", sites_path=sites)
+	result = drop_site("drop.localhost", sites_path=sites)
+	assert result["mode"] == "archived"
+	assert Path(result["archive_path"]).exists()
+	assert not (sites / "drop.localhost").exists()
+
+
+def test_simple_app_names_resolve_to_frappe_org() -> None:
+	assert resolve_app_source("crm") == {
+		"app": "crm",
+		"source": "https://github.com/frappe/crm.git",
+		"kind": "frappe_org_name",
+	}
+	assert resolve_app_source("erpnext")["source"] == "https://github.com/frappe/erpnext.git"
+	assert resolve_app_source("some-owner/some-app") == {
+		"app": "some-app",
+		"source": "https://github.com/some-owner/some-app.git",
+		"kind": "github_slug",
+	}
