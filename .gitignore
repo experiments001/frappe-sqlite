@@ -86,6 +86,9 @@ instance/
 .scrapy
 
 # Sphinx documentation
+# Documentation lives in a separate repo: experiments001/frappe-sqlite-doc
+docs/
+
 docs/_build/
 
 # PyBuilder
