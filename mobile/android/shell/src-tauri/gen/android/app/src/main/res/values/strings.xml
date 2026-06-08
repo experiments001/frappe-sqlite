@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">frappe-sqlite-mobile</string>
+    <string name="main_activity_title">frappe-sqlite-mobile</string>
+</resources>
