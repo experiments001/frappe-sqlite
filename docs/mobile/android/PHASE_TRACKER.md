@@ -1,6 +1,6 @@
 # Phase Tracker — Android
 
-**Current Phase: 1 — Tauri Android Shell**
+**Current Phase: 2 — Python Runtime via Chaquopy**
 **Status: IN PROGRESS**
 
 ---
@@ -27,12 +27,12 @@
 
 | Task | Status | Notes |
 |------|--------|-------|
-| `mobile/android/shell/` scaffolded | ⬜ | Adapted from `desktop/shell/` |
-| `tauri.conf.json` updated for Android | ⬜ | identifier, icons, no externalBin |
-| `lib.rs` stripped to shell-only (no sidecar spawn) | ⬜ | Sidecar replaced by in-process Py |
-| `tauri android build --debug` succeeds | ⬜ | |
-| APK installs on emulator | ⬜ | |
-| WebView loads static "Loading..." page | ⬜ | Proves WebView works |
+| `mobile/android/shell/` scaffolded | ✅ | Copied from `desktop/shell/` |
+| `tauri.conf.json` updated for Android | ✅ | `com.frappe.sqlite-mobile`, no externalBin |
+| `lib.rs` stripped to shell-only (no sidecar spawn) | ✅ | Commands kept, sidecar removed |
+| `tauri android build --debug` succeeds | ✅ | `app-universal-debug.apk` built |
+| APK installs on emulator | ✅ | `adb install` Success |
+| WebView loads static "Loading..." page | ✅ | Activity displayed, WebView initialized |
 
 **Phase 1 complete when:** debug APK installs, WebView visible on emulator.
 
