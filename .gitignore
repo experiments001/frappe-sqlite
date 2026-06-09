@@ -9,6 +9,7 @@ dist/
 
 # docs/ intentionally excluded except mobile plans
 docs/*
+!docs/MASTER_PLAN.md
 !docs/mobile/
 # build/
 frappe/docs/current
