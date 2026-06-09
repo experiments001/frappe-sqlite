@@ -24,8 +24,14 @@ author_email = "developers@frappe.io"
 formal_name = "FrappeSQLite"
 description = "Frappe SQLite iOS App"
 icon = "resources/frappesqlite"
-# Source paths: our app code + shims + frappe core
-sources = ["src/frappe_ios", "src/shims"]
+# Source paths: all under src/ (symlinks for out-of-tree dirs)
+sources = [
+    "src/frappeios",
+    "src/frappe_ios",
+    "src/shims",
+    "src/runtime",
+    "src/frappe",
+]
 
 # Requirements — trimmed runtime set (see scripts/requirements.txt)
 requires = [
@@ -55,13 +61,11 @@ requires = [
     "oauthlib~=3.3.1",
     "passlib~=1.7.4",
     "phonenumbers~=9.0.21",
-    "premailer~=3.10.0",
-    "pydantic~=2.12.5",
     "pyotp~=2.9.0",
     "python-dateutil~=2.9.0.post0",
     "pytz==2025.2",
-    "rauth~=0.7.3",
     "requests-oauthlib~=2.0.0",
+    "rauth~=0.7.3",
     "requests~=2.33.0",
     "rsa~=4.9.1",
     "semantic-version~=2.10.0",
@@ -78,12 +82,12 @@ requires = [
     "xlrd~=2.0.2",
 ]
 
+# Pass --find-links to pip so it finds our local wheelhouse
+requirement_installer_args = [
+    "--find-links=../vendor/wheelhouse",
+]
+
 # Use our pre-downloaded Python-Apple-support instead of downloading
 [tool.briefcase.app.frappe_ios.iOS]
 supported = true
 support_package = "../vendor/Python-3.13-iOS-support.b13.tar.gz"
-
-# Add local wheelhouse for packages Briefcase can't resolve from PyPI
-wheel = [
-    "../vendor/wheelhouse",
-]
