@@ -734,7 +734,7 @@ def get_stats(stats, doctype, filters=None):
 
 	try:
 		db_columns = frappe.db.get_table_columns(doctype)
-	except frappe.db.InternalError, frappe.db.ProgrammingError:
+	except (frappe.db.InternalError, frappe.db.ProgrammingError):
 		# raised when _user_tags column is added on the fly
 		# raised if its a virtual doctype
 		db_columns = []

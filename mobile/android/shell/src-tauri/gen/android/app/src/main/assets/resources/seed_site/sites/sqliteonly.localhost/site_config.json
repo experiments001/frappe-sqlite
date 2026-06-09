@@ -1,0 +1,15 @@
+{
+ "allow_reads_during_maintenance": 1,
+ "allow_tests": true,
+ "cache_backend": "local",
+ "db_name": "_629808a2a7925e7e",
+ "db_password": "W15cKApUJOCL6dCj",
+ "db_type": "sqlite",
+ "disable_async": 1,
+ "encryption_key": "MJu2IBBUZSoa-TPT5jzloaWwoE4wpJuaGy6E98Nx7ws=",
+ "maintenance_mode": 0,
+ "pause_scheduler": 1,
+ "queue_backend": "sync",
+ "realtime_backend": "noop",
+ "rq_failed_jobs_limit": 10
+}

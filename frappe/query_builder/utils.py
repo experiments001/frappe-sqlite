@@ -2,7 +2,7 @@ import inspect
 from collections.abc import Callable
 from enum import Enum
 from importlib import import_module
-from typing import Any, get_type_hints
+from typing import Any, Union, get_type_hints
 
 from pypika.queries import Column, QueryBuilder, _SetOperation
 from pypika.terms import PseudoColumn
@@ -50,7 +50,7 @@ class BuilderIdentificationFailed(Exception):
 		super().__init__("Couldn't guess builder")
 
 
-def get_query_builder(type_of_db: str) -> Postgres | MariaDB | SQLite:
+def get_query_builder(type_of_db: str) -> Union["Postgres", "MariaDB", "SQLite"]:
 	"""Return the query builder object.
 
 	Args:
@@ -82,9 +82,9 @@ def Table(*args, **kwargs):
 def mask_fields(
 	doctype: str,
 	fields: list[Any],
-	result: list[dict] | list[tuple],
+	result: Union[list[dict], list[tuple]],
 	as_dict: bool = True,
-) -> list[dict] | list[tuple]:
+) -> Union[list[dict], list[tuple]]:
 	"""Mask fields in the result based on the doctype's masked fields.
 
 	Args:

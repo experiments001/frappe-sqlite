@@ -4,8 +4,8 @@ from typing import (
 	Self,
 	TypeVar,
 	overload,
-	override,
 )
+from typing_extensions import override
 
 _KT = TypeVar("_KT")
 _VT = TypeVar("_VT")

@@ -1,0 +1,10 @@
+# redis.exceptions shim
+class RedisError(Exception): pass
+class ConnectionError(RedisError): pass
+class BusyLoadingError(RedisError): pass
+class ResponseError(RedisError): pass
+class TimeoutError(RedisError): pass
+class AuthenticationError(RedisError): pass
+class DataError(RedisError): pass
+class InvalidResponse(RedisError): pass
+class ReadOnlyError(RedisError): pass

@@ -75,7 +75,7 @@ class SecuritySettings(Document):
 	def public_expires_section(self):
 		expires = self.public_expires or frappe.utils.add_years(frappe.utils.now_datetime(), 1)
 		if isinstance(expires, str):
-			expires = datetime.fromisoformat(expires)
+			expires = datetime.fromisoformat(expires.replace(" ", "T", 1) if " " in expires else expires)
 		expires = expires.replace(microsecond=0, tzinfo=ZoneInfo(get_system_timezone())).astimezone(UTC)
 		value = expires.strftime("%Y-%m-%dT%H:%M:%SZ")
 		return f"Expires: {value}"
@@ -117,6 +117,6 @@ class SecuritySettings(Document):
 		if self.public_expires:
 			expires = self.public_expires
 			if isinstance(expires, str):
-				expires = datetime.fromisoformat(expires)
+				expires = datetime.fromisoformat(expires.replace(" ", "T", 1) if " " in expires else expires)
 			if expires <= now_datetime():
 				frappe.throw(_("Expiration date must be in the future"))

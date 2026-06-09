@@ -9,16 +9,27 @@ Differences from desktop:
 - No webbrowser.open() (Tauri WebView handles navigation)
 - Blocks indefinitely (runs in a background thread)
 """
-from migration import run_migrations_if_needed
-from server import find_free_port, serve
+import sys
+
+from runner.migration import run_migrations_if_needed
+from runner.server import find_free_port, serve
 
 
 def main() -> None:
     print("[android/main] Running migrations...")
-    run_migrations_if_needed()
+    try:
+        run_migrations_if_needed()
+    except Exception as mig_err:
+        print(f"[android/main] Migrations FAILED: {mig_err}", file=sys.stderr)
+        raise
+
     print("[android/main] Migrations done. Starting server...")
-    port = find_free_port()
-    serve(port=port)
+    try:
+        port = find_free_port()
+        serve(port=port)
+    except Exception as serve_err:
+        print(f"[android/main] Server FAILED: {serve_err}", file=sys.stderr)
+        raise
 
 
 if __name__ == "__main__":

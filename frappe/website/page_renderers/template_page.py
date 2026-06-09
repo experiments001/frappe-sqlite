@@ -145,6 +145,15 @@ class TemplatePage(BaseTemplatePage):
 
 		if os.path.exists(os.path.join(self.app_path, self.pymodule_path)):
 			self.pymodule_name = self.app + "." + self.pymodule_path.replace(os.path.sep, ".")[:-3]
+		else:
+			# Fallback for environments (e.g. Chaquopy AssetFinder) where
+			# os.path.exists() doesn't work for .py modules but import does.
+			candidate = self.app + "." + self.pymodule_path.replace(os.path.sep, ".")[:-3]
+			try:
+				__import__(candidate)
+				self.pymodule_name = candidate
+			except ImportError:
+				pass
 
 	def setup_template_source(self):
 		"""Setup template source, frontmatter and markdown conversion"""

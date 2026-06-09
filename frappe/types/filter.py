@@ -5,18 +5,19 @@ from collections.abc import Generator, Iterable, Mapping, Sequence
 from datetime import date, datetime
 from itertools import groupby
 from operator import attrgetter
-from typing import Any, NamedTuple, Self, TypeAlias, TypeGuard, TypeVar, cast, override
+from typing import Any, NamedTuple, Self, TypeAlias, TypeGuard, TypeVar, cast
+from typing_extensions import override
 
 from pypika import Column
 
-Doct: TypeAlias = str
-Fld: TypeAlias = str
-Op: TypeAlias = str
-DateTime: TypeAlias = datetime | date
-_Value: TypeAlias = str | int | float | None | DateTime | Column
-_InputValue: TypeAlias = _Value | bool
-Value: TypeAlias = _Value | Sequence[_Value]
-InputValue: TypeAlias = _InputValue | Sequence[_InputValue]
+Doct = str
+Fld = str
+Op = str
+DateTime = datetime | date
+_Value = str | int | float | None | DateTime | Column
+_InputValue = _Value | bool
+Value = _Value | Sequence[_Value]
+InputValue = _InputValue | Sequence[_InputValue]
 
 
 FilterTupleSpec: TypeAlias = (
@@ -37,7 +38,8 @@ class Sentinel:
 UNSPECIFIED = Sentinel()
 
 
-def is_unspecified[T](value: T | Sentinel) -> TypeGuard[Sentinel]:
+_T = TypeVar("_T")
+def is_unspecified(value: _T | Sentinel) -> TypeGuard[Sentinel]:
 	return value is UNSPECIFIED
 
 
@@ -283,4 +285,4 @@ class Filters(list[FilterTuple]):
 		return f"Filters(\n{filters_str}\n)"
 
 
-type FilterSignature = Filters | FilterTuple | FilterMappingSpec | FilterTupleSpec
+FilterSignature = Filters | FilterTuple | FilterMappingSpec | FilterTupleSpec

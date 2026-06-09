@@ -152,7 +152,7 @@ def bundled_asset(path, rtl=None):
 		bundled_assets = get_assets_json()
 		if path.endswith(".css") and is_rtl(rtl):
 			path = f"rtl_{path}"
-		path = bundled_assets.get(path) or path
+		path = bundled_assets.get(path) or path if bundled_assets else path
 
 	return abs_url(path)
 

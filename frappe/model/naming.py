@@ -6,8 +6,14 @@ import datetime
 import re
 import time
 from collections.abc import Callable
-from typing import TYPE_CHECKING
-from uuid import UUID, uuid7
+from typing import TYPE_CHECKING, Optional
+try:
+	from uuid import UUID, uuid7
+except ImportError:
+	from uuid import UUID, uuid4
+
+	def uuid7():
+		return uuid4()
 
 import frappe
 from frappe import _
@@ -198,7 +204,7 @@ def set_new_name(doc):
 	doc.name = validate_name(doc.doctype, doc.name)
 
 
-def is_autoincremented(doctype: str, meta: "Meta" | None = None) -> bool:
+def is_autoincremented(doctype: str, meta: Optional["Meta"] = None) -> bool:
 	"""Checks if the doctype has autoincrement autoname set"""
 
 	if not meta:
@@ -326,7 +332,7 @@ def _generate_random_string(length=10):
 def parse_naming_series(
 	parts: list[str] | str,
 	doctype=None,
-	doc: "Document" | None = None,
+	doc: Optional["Document"] = None,
 	number_generator: Callable[[str, int], str] | None = None,
 ) -> str:
 	"""Parse the naming series and get next name.

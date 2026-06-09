@@ -59,7 +59,7 @@ class Local:
 		return lp
 
 
-class LocalProxy[T](WerkzeugLocalProxy):
+class LocalProxy(WerkzeugLocalProxy, Generic[T]):
 	__slots__ = ()
 
 	def __getattr__(self, name: str) -> Any:
