@@ -132,9 +132,28 @@ class SQLiteDatabase(SQLiteExceptionUtil, Database):
 
 	def create_connection(self, read_only: bool = False):
 		db_path = self.get_db_path()
-		sqlite3.register_converter("timestamp", lambda x: datetime.fromisoformat(x.decode()))
-		sqlite3.register_converter("date", lambda x: date.fromisoformat(x.decode()))
-		sqlite3.register_converter("time", lambda x: time.fromisoformat(x.decode()))
+		import re as _re
+		def _parse_ts(x):
+			s = x.decode()
+			# SQLite timestamps may use space instead of T
+			if " " in s and "T" not in s:
+				s = s.replace(" ", "T", 1)
+			return datetime.fromisoformat(s)
+		def _parse_d(x):
+			s = x.decode()
+			# SQLite may return full datetime for date columns (loose typing)
+			if " " in s:
+				s = s.split(" ")[0]
+			return date.fromisoformat(s)
+		def _parse_t(x):
+			s = x.decode()
+			# SQLite may return full datetime for time columns (loose typing)
+			if " " in s:
+				s = s.split(" ")[1]
+			return time.fromisoformat(s)
+		sqlite3.register_converter("timestamp", _parse_ts)
+		sqlite3.register_converter("date", _parse_d)
+		sqlite3.register_converter("time", _parse_t)
 		if read_only:
 			conn = sqlite3.connect(
 				f"file:{db_path}?mode=ro",

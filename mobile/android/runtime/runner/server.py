@@ -6,8 +6,9 @@ import os
 import socket
 import sys
 from pathlib import Path
+from typing import Optional
 from werkzeug.serving import run_simple
-from runtime_paths import bundle_root, sites_path
+from runner.runtime_paths import bundle_root, sites_path
 
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_SITE = "sqliteonly.localhost"
@@ -44,28 +45,42 @@ def configure_frappe_env() -> None:
     os.environ.setdefault("FRAPPE_STREAM_LOGGING", "1")
 
 
-def serve(port: int | None = None) -> int:
+def serve(port: Optional[int] = None) -> int:
     configure_python_paths()
     configure_frappe_env()
     selected_port = port or find_free_port()
 
     root = bundle_root()
-    os.chdir(root)
+    os.chdir(sites_path())
 
     import frappe.app
     frappe.app._site = site_name()
     frappe.app._sites_path = str(sites_path())
 
-    from frappe.app import application_with_statics
-    application = application_with_statics()
+    try:
+        from frappe.app import application_with_statics
+    except Exception as import_err:
+        print(f"[android] ERROR importing application_with_statics: {import_err}", file=sys.stderr)
+        raise
+
+    try:
+        application = application_with_statics()
+    except Exception as app_err:
+        print(f"[android] ERROR building WSGI application: {app_err}", file=sys.stderr)
+        raise
+
     print(f"[android] Starting Frappe SQLite on http://{DEFAULT_HOST}:{selected_port}")
     print(f"[android] Sites path: {sites_path()}")
-    run_simple(
-        hostname=DEFAULT_HOST,
-        port=selected_port,
-        application=application,
-        use_reloader=False,
-        use_debugger=False,
-        threaded=True,
-    )
+    try:
+        run_simple(
+            hostname=DEFAULT_HOST,
+            port=selected_port,
+            application=application,
+            use_reloader=False,
+            use_debugger=False,
+            threaded=True,
+        )
+    except Exception as run_err:
+        print(f"[android] ERROR run_simple failed: {run_err}", file=sys.stderr)
+        raise
     return selected_port

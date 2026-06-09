@@ -346,7 +346,7 @@ def get_events(
 	if user and user != caller:
 		if not frappe.has_permission("Event", ptype="read"):
 			frappe.throw(_("You are not allowed to view events for another user."), frappe.PermissionError)
-	type EventLikeDict = Event | frappe._dict
+	EventLikeDict = Event | frappe._dict
 	resolved_events: list[EventLikeDict] = []
 
 	if isinstance(filters, str):

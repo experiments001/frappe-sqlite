@@ -74,8 +74,8 @@ if TYPE_CHECKING:  # pragma: no cover
 controllers: dict[str, type] = {}
 lazy_controllers: dict[str, type] = {}
 local = Local()
-cache: "RedisWrapper" | None = None
-client_cache: "ClientCache" | None = None
+cache: Optional["RedisWrapper"] = None
+client_cache: Optional["ClientCache"] = None
 STANDARD_USERS = ("Guest", "Administrator")
 SITE_NAME_PATTERN = re.compile(r"^[a-zA-Z0-9._-]+$")
 
@@ -90,20 +90,20 @@ if _dev_server:
 
 
 # local-globals
-type ConfType = _dict[str, Any]  # type: ignore[no-any-explicit]
+ConfType = _dict[str, Any]  # type: ignore[no-any-explicit]
 # TODO: make session a dataclass instead of undtyped _dict
-type SessionType = _dict[str, Any]  # type: ignore[no-any-explicit]
+SessionType = _dict[str, Any]  # type: ignore[no-any-explicit]
 # TODO: implement dataclass
-type LogMessageType = _dict[str, Any]  # type: ignore[no-any-explicit]
+LogMessageType = _dict[str, Any]  # type: ignore[no-any-explicit]
 # TODO: implement dataclass
 # holds job metadata if the code is run in a background job context
-type JobMetaType = _dict[str, Any]  # type: ignore[no-any-explicit]
-type ResponseDict = _dict[str, Any]  # type: ignore[no-any-explicit]
-type FlagsDict = _dict[str, Any]  # type: ignore[no-any-explicit]
-type FormDict = _dict[str, str]
+JobMetaType = _dict[str, Any]  # type: ignore[no-any-explicit]
+ResponseDict = _dict[str, Any]  # type: ignore[no-any-explicit]
+FlagsDict = _dict[str, Any]  # type: ignore[no-any-explicit]
+FormDict = _dict[str, str]
 
-db: LocalProxy["PyMariaDBDatabase" | "MariaDBDatabase" | "PostgresDatabase" | "SQLiteDatabase"] = local("db")
-qb: LocalProxy["MariaDB" | "Postgres" | "SQLite"] = local("qb")
+db: LocalProxy[Union["PyMariaDBDatabase", "MariaDBDatabase", "PostgresDatabase", "SQLiteDatabase"]] = local("db")
+qb: LocalProxy[Union["MariaDB", "Postgres", "SQLite"]] = local("qb")
 conf: LocalProxy[ConfType] = local("conf")
 form_dict: LocalProxy[FormDict] = local("form_dict")
 form = form_dict
@@ -682,7 +682,7 @@ def is_table(doctype: str) -> bool:
 
 
 def get_precision(
-	doctype: str, fieldname: str, currency: str | None = None, doc: "Document" | None = None
+	doctype: str, fieldname: str, currency: Optional[str] = None, doc: Optional["Document"] = None
 ) -> int:
 	"""Get precision for a given field"""
 	from frappe.model.meta import get_field_precision

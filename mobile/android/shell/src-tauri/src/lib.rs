@@ -122,6 +122,20 @@ pub fn run() {
           let _ = config;
         }
       }
+
+      #[cfg(target_os = "android")]
+      {
+        let handle = app.handle().clone();
+        std::thread::spawn(move || {
+          std::thread::sleep(std::time::Duration::from_secs(3));
+          if let Some(window) = handle.get_webview_window("main") {
+            if let Ok(url) = tauri::Url::parse("http://127.0.0.1:8765") {
+              let _ = window.navigate(url);
+            }
+          }
+        });
+      }
+
       Ok(())
     })
     .run(tauri::generate_context!())

@@ -370,7 +370,9 @@ class Session:
 
 			if self.time_diff > expiry or (
 				(session_end := session_data.get("session_end"))
-				and datetime.now(tz=UTC) > datetime.fromisoformat(session_end)
+				and datetime.now(tz=UTC) > datetime.fromisoformat(
+					session_end.replace(" ", "T", 1) if isinstance(session_end, str) and " " in session_end else session_end
+				)
 			):
 				self._delete_session()
 				data = None

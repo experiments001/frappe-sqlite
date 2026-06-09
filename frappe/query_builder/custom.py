@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, Optional
 
 from pypika.functions import DistinctOptionFunction, Function
 from pypika.terms import Term
@@ -8,7 +8,7 @@ import frappe
 
 
 class GROUP_CONCAT(DistinctOptionFunction):
-	def __init__(self, column: str, alias: str | None = None):
+	def __init__(self, column: str, alias: Optional[str] = None):
 		"""[ Implements the group concat function read more about it at https://www.geeksforgeeks.org/mysql-group_concat-function ]
 		Args:
 		        column (str): [ name of the column you want to concat]
@@ -40,7 +40,7 @@ class GROUP_CONCAT(DistinctOptionFunction):
 
 
 class STRING_AGG(DistinctOptionFunction):
-	def __init__(self, column: str, separator: str = ",", alias: str | None = None):
+	def __init__(self, column: str, separator: str = ",", alias: Optional[str] = None):
 		"""[ Implements the group concat function read more about it at https://docs.microsoft.com/en-us/sql/t-sql/functions/string-agg-transact-sql?view=sql-server-ver15 ]
 
 		Args:
@@ -113,7 +113,7 @@ class ConstantColumn(Term):
 		"""Return a pseudo column with the given constant `value` in all the rows."""
 		self.value = value
 
-	def get_sql(self, quote_char: str | None = None, **kwargs: Any) -> str:
+	def get_sql(self, quote_char: Optional[str] = None, **kwargs: Any) -> str:
 		return format_alias_sql(
 			format_quotes(self.value, kwargs.get("secondary_quote_char") or ""),
 			self.alias or self.value,
