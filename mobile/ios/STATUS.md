@@ -1,102 +1,57 @@
 # iOS Build Status
 
-> Live progress tracker. Updated after every meaningful change.
-> **Session paused.** Next: briefcase create retry after bulk shim fixes.
+> Updated: 2026-06-09
+> Branch: `feature/mobile-ios-runnable`
 
-## Current Phase
+## Summary
 
-**Phase 4 — Briefcase Shell (E1-E5)**
+The iOS app **builds, installs, and launches** in the iPhone 16 Pro simulator. The native WKWebView loads and connects to the embedded Frappe server. However, two blocking issues prevent full functionality:
 
-## Completed ✅
+1. **"Page not found" on launch** — The WKWebView shows Frappe's 404 page instead of the login page. This suggests the site seeding or routing is not fully working after a fresh install.
 
-### Phase 0 — Research & Audit
-- [x] A1: Runner audit — server.py fully reusable (no subprocess, 127.0.0.1 only)
-- [x] A2: Dependency audit — 51 packages in trimmed requirements.txt
-- [x] A3: Python-Apple-support — downloaded `Python-3.13-iOS-support.b13.tar.gz`
-- [x] A4: Native shim audit — 18 shim files created (reused from Android)
+2. **Stale `frappe/` code loading** — The SQLite date converter fix (already working on Android) is present in the bundled `frappe/database/sqlite/database.py`, but the running app produces tracebacks showing the *old* pre-fix lambda code (`line 136, in <lambda>`). Despite verifying the built app bundle contains the fixed code, the runtime behaves as if it's executing an older version. This causes the ToDo list API to crash with `ValueError: Invalid isoformat string`.
 
-### Phase 1 — Infrastructure
-- [x] B1: Branch `feature/mobile-ios-first-run` created from `feature/mobile-android-first-run`
-- [x] B2: Directory layout `mobile/ios/` created
-- [x] B3: Trimmed `requirements.txt` created (51 packages)
-- [x] B4: Build scripts created (`build_wheels_ios.sh`, `assemble_payload.sh`, `run_simulator.sh`, `run_device.sh`)
+## What Works ✅
 
-### Phase 2 — Runtime
-- [x] C1: `ios_main.py` — in-process entrypoint with `start()` and `start_background()`
-- [x] C2: `runtime_paths.py` — iOS sandbox `Documents/` paths
-- [x] C3: `migration.py` — seed site copy + SQLite DB init on first run
-- [x] C4: `server.py` — iOS wrapper (copied from desktop, no changes to shared logic)
+- **Xcode build** — `xcodebuild` succeeds (Debug, iphonesimulator)
+- **App install** — `xcrun simctl install` works
+- **App launch** — App starts, Python 3.13 interpreter initializes, server thread starts
+- **WKWebView** — Native UI loads and makes HTTP requests to `127.0.0.1:8765`
+- **Login API** — `/api/method/login` returns a valid session cookie
+- **Shared `frappe/` code** — The Android SQLite fixes are present in the source tree
 
-### Phase 3 — Wheelhouse & Shims
-- [x] D1: briefcase + cibuildwheel installed in `.venv`
-- [x] D2: `Python.xcframework` downloaded to `vendor/`
-- [x] D4: Native shims created (25+ shim files across `src/shims/` and `src/frappe_ios/shims/`)
+## Active Blockers 🔴
 
-### Phase 4 — Briefcase Config
-- [x] E1: `pyproject.toml` created with iOS target config
-- [x] E2: App config iterated to match Briefcase validation (`sources` must include module name)
-- [x] E3: `app.py` bootstrap created with runtime sys.path setup
-
-### Phase 6 — Documentation
-- [x] G1: `AGENTS.md` updated with iOS section
-- [x] G2: `CORE_CHANGES.md` updated with iOS additions
-- [x] G3: `README.md` and `STATUS.md` created
-
-## In Progress 🔄
-
-- [ ] E4/E5: `briefcase create iOS` — iterating on dependency resolution
-  - PyYAML: fixed with pure-Python wheel in `vendor/wheelhouse/`
-  - cryptography/MarkupSafe/pyOpenSSL: removed from requirements, shims created
-  - Next: retry briefcase create to find remaining issues
-
-## Pending ⏳
-
-### Phase 4 (continued)
-- [ ] E4: `briefcase create iOS` — retry after bulk fixes
-- [ ] E5: `briefcase build iOS`
-- [ ] E6: `briefcase run iOS` (simulator)
-
-### Phase 5 — WebView Integration
-- [ ] F1: Add WKWebView + health-check polling
-- [ ] F2: Test login page renders
-- [ ] F3: Test create/persist data
-
-### Phase 7 — Deferred
-- [ ] H1: Xcode hand-built shell (Lane B)
-- [ ] H2: Device wheels (`arm64_iphoneos`)
-- [ ] H3: TestFlight / App Store prep
-
-## Briefcase Config Iteration Log
-
-| Attempt | Issue | Fix |
+| Issue | Symptom | Root Cause (Investigated) |
 |---|---|---|
-| v1 | `license.file` missing | Created LICENSE file |
-| v2 | `sources` doesn't include package `frappeios` | Renamed app → `frappe_ios` |
-| v3 | `sources` doesn't include package `frappe_ios` | Fixed sources to `src/frappe_ios` + `src/shims` |
-| v4 | PyQRCode no iOS wheel | Removed from requirements + shim |
-| v5 | Build dir exists (interactive prompt) | Added `--no-input` flag |
-| v6 | PyYAML no iOS wheel | Built pure-Python wheel in vendor/wheelhouse |
-| v7 | PyYAML still not found | Set `PIP_FIND_LINKS` env var |
-| v8 | cryptography no iOS wheel | **Bulk fix:** removed cryptography/MarkupSafe/pyOpenSSL + shims |
+| **#1: Page not found** | WKWebView shows "Page not found" with "Back to Home" button | Site seeding may be incomplete after uninstall/reinstall cycle; or Frappe routing is misconfigured for the `sqliteonly.localhost` site |
+| **#2: Stale code execution** | ToDo list API crashes with old lambda traceback despite fixed source | Unknown. Verified: no `.pyc` files, no `__pycache__`, no duplicate `frappe` packages. The built app bundle's `database.py` has `_parse_d`, but runtime traceback shows `<lambda>` at line 136. Hypotheses: (a) Xcode resource copying caching old files, (b) iOS app container delta-install keeping old code, (c) Python 3.13 iOS runtime has unusual bytecode caching |
 
-## Key Technical Decisions
+## Build Info
 
-1. **In-process Python**: iOS bans subprocesses. `ios_main.py` runs Werkzeug on a daemon thread.
-2. **Shared core**: Zero modifications to `frappe/`. iOS reuses Android-patched core.
-3. **Native shims**: 25+ pure-Python stubs shadow missing packages (orjson, nh3, PIL, psutil, redis, rq, PyQRCode, markupsafe, cryptography, OpenSSL).
-4. **Wheelhouse strategy**: Pure-Python packages work via PyPI. C extensions without iOS wheels are either shimmed or replaced with pure-Python builds.
+- **Build tool:** Direct `xcodebuild` (Briefcase `create` used for initial scaffold only)
+- **Workaround applied:** `Images.xcassets` removed from `PBXResourcesBuildPhase` to avoid CoreSimulator crash
+- **Bundle ID:** `com.frappe.sqlite-ios.frappe-ios`
+- **App size:** ~222MB (Debug, includes full `frappe/` + `runtime/` + wheels)
+- **Device:** iPhone 16 Pro simulator (`0768629E-9A19-4915-8F42-2B51D0D0B046`)
 
-## Next Steps (when resuming)
+## Key Files
 
-```bash
-cd mobile/ios/poc
-source ../.venv/bin/activate
-export PIP_FIND_LINKS=/Users/safwan/Code/docker/fdocker/development/frappe-sqlite-android/mobile/ios/vendor/wheelhouse
-rm -rf build iOS
-briefcase create iOS --no-input
-```
+| File | Purpose |
+|---|---|
+| `mobile/ios/poc/pyproject.toml` | Briefcase config |
+| `mobile/ios/poc/src/frappe_ios/app.py` | Briefcase Python entrypoint |
+| `mobile/ios/runtime/ios_main.py` | iOS server bootstrap (daemon thread) |
+| `mobile/ios/runtime/server.py` | Werkzeug wrapper |
+| `mobile/ios/runtime/migration.py` | Seed site + SQLite init |
+| `mobile/ios/poc/build/.../AppDelegate.m` | WKWebView native shell |
+| `mobile/ios/poc/build/.../main.m` | Python interpreter init + `UIApplicationMain` |
 
-Then iterate on any remaining dependency failures.
+## Next Steps (When Resuming)
+
+1. **Fix site seeding** — Debug why `run_migrations_if_needed()` produces a site that serves "Page not found" instead of the login page. Check `sites_path()`, `common_site_config.json`, and asset availability.
+2. **Fix stale code loading** — Investigate Xcode's resource copy phase more deeply. Try forcing a full clean of `DerivedData`, `build/`, and the simulator app container. Consider modifying `database.py` to add an obvious runtime marker to definitively prove which code is executing.
+3. **Test ToDo list** — Once the above two issues are resolved, verify the ToDo list loads without the `ValueError`.
 
 ## Pin Log
 
@@ -104,6 +59,6 @@ Then iterate on any remaining dependency failures.
 |---|---|---|
 | Python (host) | 3.13.3 | Homebrew |
 | Python (embedded) | 3.13-b13 | BeeWare Python-Apple-support |
-| Xcode | 16.x | App Store |
-| iOS SDK | 18.2 | Xcode bundled |
+| Xcode | 18.2 | App Store |
+| iOS SDK | 18.3 | Xcode bundled |
 | briefcase | 0.4.2 | pip |
