@@ -510,3 +510,94 @@ When opening a single ToDo document, the form view title bar shows raw HTML like
 
 **Our involvement:** None. This is upstream Frappe behavior. The list view DOES strip HTML (see `list_view.js:958`), but the form view title does not.
 
+
+---
+
+## iOS Additions (feature/mobile-ios-first-run)
+
+> **Note:** iOS changes are entirely additive — no modifications to existing `frappe/` files.
+> The iOS runtime reuses the same `frappe/` core, `desktop/runtime/runner/server.py` pattern,
+> and SQLite backend already established for desktop and Android.
+
+### i0. New Directory: `mobile/ios/`
+
+All iOS-specific code lives under `mobile/ios/` and does not touch `frappe/`.
+
+| File | Purpose | Reuses? |
+|---|---|---|
+| `mobile/ios/poc/pyproject.toml` | Briefcase iOS app configuration | ❌ New |
+| `mobile/ios/poc/src/frappe_ios/app.py` | Briefcase entrypoint — starts server thread | ❌ New (thin wrapper) |
+| `mobile/ios/poc/src/frappe_ios/__init__.py` | Package marker | ❌ New |
+| `mobile/ios/poc/src/shims/` | 18 pure-Python stub files | 🟢 Reused from Android |
+| `mobile/ios/runtime/ios_main.py` | In-process entrypoint (EMBEDDED_INPROCESS) | 🟡 Adapted from desktop |
+| `mobile/ios/runtime/runtime_paths.py` | iOS sandbox Documents/ paths | 🟡 Adapted from Android |
+| `mobile/ios/runtime/migration.py` | Seed site + SQLite init on first run | 🟡 Adapted from Android |
+| `mobile/ios/runtime/server.py` | Werkzeug wrapper | 🟢 Copied from desktop |
+| `mobile/ios/scripts/requirements.txt` | Trimmed 51-package runtime set | 🟡 Derived from pyproject.toml |
+| `mobile/ios/scripts/build_wheels_ios.sh` | cibuildwheel driver | ❌ New |
+| `mobile/ios/scripts/assemble_payload.sh` | Bundle assembly | ❌ New |
+| `mobile/ios/scripts/run_simulator.sh` | Simulator runner | ❌ New |
+| `mobile/ios/scripts/run_device.sh` | Device runner | ❌ New |
+| `mobile/ios/vendor/Python.xcframework` | BeeWare Python-Apple-support 3.13 | ❌ Prebuilt binary |
+| `mobile/ios/README.md` | iOS-specific documentation | ❌ New |
+| `mobile/ios/STATUS.md` | Live progress tracker | ❌ New |
+
+### i1. Architecture Decision: In-Process Python
+
+**File:** `mobile/ios/runtime/ios_main.py`
+
+iOS bans subprocesses. Unlike desktop (PyInstaller sidecar spawned by Tauri) and
+Android (Chaquopy runs Python in a background thread from Kotlin), iOS runs Python
+**in-process** on a `DispatchQueue`/`Thread`:
+
+```python
+# ios_main.py
+import ios_main
+ios_main.start_background()  # daemon thread → Werkzeug serves in-process
+```
+
+**Verdict:** 🔴 **Fork-only** — iOS-specific constraint.
+
+### i2. Native Shims (Reused from Android)
+
+**Files:** `mobile/ios/poc/src/shims/*`
+
+Same 18 pure-Python stubs as Android:
+- `orjson.py` — wraps `json`
+- `nh3.py` — uses `html.escape`
+- `PIL.py` — no-op Image class
+- `psutil.py` — minimal system info fallback
+- `redis/` — no-op Redis client package
+- `rq/` — no-op RQ queue package
+
+**Verdict:** 🟢 **Reused verbatim** from Android. No changes needed.
+
+### i3. Wheelhouse Strategy
+
+iOS wheels are built with `cibuildwheel` targeting `arm64_iphonesimulator` (Sim)
+and `arm64_iphoneos` (device). Heavy Rust/C deps (cryptography, pydantic-core)
+may fail; the trimmed requirements drop non-critical deps and stub the rest.
+
+**Verdict:** 🔴 **Fork-only** — iOS packaging concern.
+
+### i4. No `frappe/` Modifications
+
+Unlike Android (which patched `database/sqlite/database.py`, `sessions.py`,
+`security_settings.py` for `fromisoformat` issues), iOS reuses the already-patched
+`frappe/` tree from `feature/mobile-android-first-run`.
+
+**Verdict:** 🟢 **Zero new core changes** — iOS is a pure consumer of the shared runtime.
+
+---
+
+## Summary: Cross-Platform Change Surface
+
+| Platform | Files Added | Files Modified in `frappe/` | Shared Core Reused? |
+|---|---|---|---|
+| Desktop | ~15 in `desktop/` | 0 (adds runner, doesn't modify core) | ✅ |
+| Android | ~20 in `mobile/android/` | ~5 (fromisoformat fixes, compat shims) | ✅ (after patches) |
+| iOS | ~25 in `mobile/ios/` | **0** | ✅ (reuses Android-patched core) |
+
+The iOS implementation is the thinnest platform layer yet — it adds only
+infrastructure (Briefcase config, shell scripts, shim copies) and no modifications
+to the shared `frappe/` framework.

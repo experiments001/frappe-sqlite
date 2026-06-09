@@ -1,0 +1,89 @@
+"""
+iOS server — thin wrapper around the shared desktop runner.
+
+The desktop server.py is fully compatible (no subprocess, binds 127.0.0.1,
+Werkzeug in-process). We just adjust the import path for iOS runtime_paths.
+"""
+
+import os
+import socket
+import sys
+from pathlib import Path
+from typing import Optional
+from werkzeug.serving import run_simple
+from runtime_paths import bundle_root, sites_path
+
+DEFAULT_HOST = "127.0.0.1"
+DEFAULT_SITE = "sqliteonly.localhost"
+DEFAULT_PORT = 8765
+
+
+def site_name() -> str:
+    return os.environ.get("FRAPPE_SITE_NAME") or DEFAULT_SITE
+
+
+def find_free_port(start: int = DEFAULT_PORT, end: int = 8865) -> int:
+    for port in range(start, end):
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.settimeout(0.2)
+            if s.connect_ex((DEFAULT_HOST, port)) != 0:
+                return port
+    raise RuntimeError("No free local port found")
+
+
+def configure_python_paths() -> None:
+    root = bundle_root()
+    for p in [root / "apps" / "frappe", root]:
+        if p.exists():
+            sys.path.insert(0, str(p))
+
+
+def configure_frappe_env() -> None:
+    os.environ.setdefault("FRAPPE_SITE_NAME", site_name())
+    os.environ.setdefault("SITES_PATH", str(sites_path()))
+    os.environ.setdefault("FRAPPE_SITES_PATH", str(sites_path()))
+    os.environ.setdefault("FRAPPE_SQLITE_DESKTOP", "1")
+    os.environ.setdefault("NO_REDIS", "1")
+    os.environ.setdefault("NO_MARIADB", "1")
+    os.environ.setdefault("FRAPPE_STREAM_LOGGING", "1")
+
+
+def serve(port: Optional[int] = None) -> int:
+    configure_python_paths()
+    configure_frappe_env()
+    selected_port = port or find_free_port()
+
+    # Change to sites_path so frappe can find assets/assets.json etc.
+    os.chdir(sites_path())
+
+    import frappe.app
+    frappe.app._site = site_name()
+    frappe.app._sites_path = str(sites_path())
+
+    try:
+        from frappe.app import application_with_statics
+    except Exception as import_err:
+        print(f"[ios] ERROR importing application_with_statics: {import_err}", file=sys.stderr)
+        raise
+
+    try:
+        application = application_with_statics()
+    except Exception as app_err:
+        print(f"[ios] ERROR building WSGI application: {app_err}", file=sys.stderr)
+        raise
+
+    print(f"[ios] Starting Frappe SQLite on http://{DEFAULT_HOST}:{selected_port}")
+    print(f"[ios] Sites path: {sites_path()}")
+    try:
+        run_simple(
+            hostname=DEFAULT_HOST,
+            port=selected_port,
+            application=application,
+            use_reloader=False,
+            use_debugger=False,
+            threaded=True,
+        )
+    except Exception as run_err:
+        print(f"[ios] ERROR run_simple failed: {run_err}", file=sys.stderr)
+        raise
+    return selected_port

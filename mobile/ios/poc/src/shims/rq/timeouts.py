@@ -1,0 +1,2 @@
+class JobTimeoutException(Exception):
+    pass
