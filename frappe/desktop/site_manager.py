@@ -61,6 +61,9 @@ def list_sites(sites_path: str | Path | None = None) -> list[dict[str, Any]]:
 		return []
 	sites: list[dict[str, Any]] = []
 	for path in sorted(p for p in root.iterdir() if p.is_dir()):
+		# Only count directories that have a site_config.json (real sites)
+		if not (path / "site_config.json").exists():
+			continue
 		config = read_site_config(path.name, root)
 		db_path = db_path_for(path.name, root)
 		db_exists = db_path.exists()

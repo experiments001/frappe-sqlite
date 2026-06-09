@@ -217,3 +217,10 @@ scripts/sign-app.sh
 desktop_shell/
 desktop_runtime/
 build/
+
+# Auto-generated dev assets symlink
+/assets
+
+# SQLite temporary files
+*.db-shm
+*.db-wal

@@ -33,15 +33,187 @@
           Data Folder
           <input id="data-dir" required />
         </label>
+        <div class="app-selection">
+          <span class="app-label">Initial Apps (optional)</span>
+          <label class="app-checkbox-label">
+            <input type="checkbox" class="app-checkbox" value="frappe" checked disabled />
+            Frappe
+          </label>
+          <label class="app-checkbox-label">
+            <input type="checkbox" class="app-checkbox" value="erpnext" />
+            ERPNext
+          </label>
+          <label class="app-checkbox-label">
+            <input type="checkbox" class="app-checkbox" value="crm" />
+            CRM
+          </label>
+          <label class="app-checkbox-label">
+            <input type="checkbox" class="app-checkbox" value="helpdesk" />
+            Helpdesk
+          </label>
+          <label class="app-checkbox-label">
+            <input type="checkbox" id="app-custom" />
+            Custom Git URL
+          </label>
+          <input id="custom-app-url" type="text" placeholder="https://github.com/user/repo" style="display:none; margin-top:6px;" />
+        </div>
         <p id="setup-message"></p>
         <button type="submit">Create Site</button>
       </form>
     </div>
+
     <div id="loading" style="display: none;">
       <div class="spinner"></div>
       <p id="loading-text">Starting Frappe SQLite...</p>
     </div>
+
     <div id="error" style="display: none;"></div>
+
+    <!-- Frappe runs here after setup -->
+    <div id="frappe-frame" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; z-index:1;">
+      <iframe id="frappe-iframe" src="" style="width:100%; height:100%; border:none;"></iframe>
+    </div>
+
+    <!-- Sites Dialog -->
+    <div id="sites-dialog" class="dialog-overlay" style="display:none;">
+      <div class="dialog">
+        <div class="dialog-header">
+          <h2>Site Manager</h2>
+          <button type="button" class="dialog-close" aria-label="Close">&times;</button>
+        </div>
+        <div class="dialog-body">
+          <div id="sites-current" class="current-indicator"></div>
+          <div id="sites-list" class="site-list"></div>
+          <div class="progress-panel" style="display:none;">
+            <div class="spinner small"></div>
+            <span class="progress-text">Working...</span>
+          </div>
+          <div class="error-block" style="display:none;"></div>
+          <div class="success-block" style="display:none;"></div>
+
+          <div id="sites-create-form" class="sub-form" style="display:none;">
+            <h3>Create Site</h3>
+            <label>Site Name <input id="new-site-name" /></label>
+            <label>Admin Password <input id="new-site-password" type="password" /></label>
+            <div class="sub-form-actions">
+              <button type="button" id="btn-do-create-site">Create</button>
+              <button type="button" class="secondary btn-cancel-subform">Cancel</button>
+            </div>
+          </div>
+
+          <div id="sites-clone-form" class="sub-form" style="display:none;">
+            <h3>Clone Site</h3>
+            <label>Source <input id="clone-source" /></label>
+            <label>Target <input id="clone-target" /></label>
+            <div class="sub-form-actions">
+              <button type="button" id="btn-do-clone-site">Clone</button>
+              <button type="button" class="secondary btn-cancel-subform">Cancel</button>
+            </div>
+          </div>
+
+          <div id="sites-export-form" class="sub-form" style="display:none;">
+            <h3>Export Site</h3>
+            <label>Site <input id="export-site-name" /></label>
+            <label>Output Path <input id="export-site-output" /></label>
+            <div class="sub-form-actions">
+              <button type="button" id="btn-do-export-site">Export</button>
+              <button type="button" class="secondary btn-cancel-subform">Cancel</button>
+            </div>
+          </div>
+
+          <div id="sites-import-form" class="sub-form" style="display:none;">
+            <h3>Import Site</h3>
+            <label>Input Path <input id="import-site-input" /></label>
+            <label>Target Name (optional) <input id="import-site-target" /></label>
+            <div class="sub-form-actions">
+              <button type="button" id="btn-do-import-site">Import</button>
+              <button type="button" class="secondary btn-cancel-subform">Cancel</button>
+            </div>
+          </div>
+        </div>
+        <div class="dialog-footer">
+          <button type="button" id="btn-show-create-site">Create Site</button>
+          <button type="button" id="btn-show-clone-site">Clone Site</button>
+          <button type="button" id="btn-show-import-site">Import Site</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Apps Dialog -->
+    <div id="apps-dialog" class="dialog-overlay" style="display:none;">
+      <div class="dialog">
+        <div class="dialog-header">
+          <h2>App Manager</h2>
+          <button type="button" class="dialog-close" aria-label="Close">&times;</button>
+        </div>
+        <div class="dialog-body">
+          <div id="apps-content"></div>
+          <div class="progress-panel" style="display:none;">
+            <div class="spinner small"></div>
+            <span class="progress-text">Working...</span>
+          </div>
+          <div class="error-block" style="display:none;"></div>
+          <div class="success-block" style="display:none;"></div>
+
+          <div id="apps-add-form" class="sub-form" style="display:none;">
+            <h3>Add App</h3>
+            <label>Source (Git URL or name) <input id="add-app-source" /></label>
+            <label>Branch (optional) <input id="add-app-branch" /></label>
+            <div class="sub-form-actions">
+              <button type="button" id="btn-do-add-app">Add</button>
+              <button type="button" class="secondary btn-cancel-subform">Cancel</button>
+            </div>
+          </div>
+
+          <div id="apps-update-form" class="sub-form" style="display:none;">
+            <h3>Update App</h3>
+            <label>App Name (optional, blank for all) <input id="update-app-name" /></label>
+            <div class="sub-form-actions">
+              <button type="button" id="btn-do-update-app">Update</button>
+              <button type="button" class="secondary btn-cancel-subform">Cancel</button>
+            </div>
+          </div>
+
+          <div id="apps-remove-form" class="sub-form" style="display:none;">
+            <h3>Remove App</h3>
+            <label>App Name <input id="remove-app-name" /></label>
+            <div class="sub-form-actions">
+              <button type="button" id="btn-do-remove-app" class="destructive">Remove</button>
+              <button type="button" class="secondary btn-cancel-subform">Cancel</button>
+            </div>
+          </div>
+        </div>
+        <div class="dialog-footer">
+          <button type="button" id="btn-show-add-app">Add App</button>
+          <button type="button" id="btn-show-update-app">Update App</button>
+          <button type="button" id="btn-show-remove-app" class="destructive">Remove App</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Maintenance Dialog -->
+    <div id="maintenance-dialog" class="dialog-overlay" style="display:none;">
+      <div class="dialog">
+        <div class="dialog-header">
+          <h2>Maintenance</h2>
+          <button type="button" class="dialog-close" aria-label="Close">&times;</button>
+        </div>
+        <div class="dialog-body">
+          <div class="dialog-actions">
+            <button type="button" id="btn-migrate-site">Migrate Current Site</button>
+            <button type="button" id="btn-migrate-all">Migrate All Sites</button>
+            <button type="button" id="btn-check-rebuild">Check Rebuild Needed</button>
+            <button type="button" id="btn-export-current">Export Current Site</button>
+          </div>
+          <div id="maintenance-output" class="maintenance-output"></div>
+          <div class="progress-panel" style="display:none;">
+            <div class="spinner small"></div>
+            <span class="progress-text">Working...</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

@@ -43,6 +43,31 @@ def serve(port: int | None = None) -> int:
     root = bundle_root()
     os.chdir(root)
 
+    # Frappe's get_assets_json() reads "assets/assets.json" relative to cwd.
+    # In dev mode the assets live in sites_path()/assets; in the bundled app
+    # PyInstaller already places them at _internal/assets. Ensure a symlink
+    # exists so Frappe can find them in both cases.
+    sites_assets = sites_path() / "assets"
+    bench_assets = root / "assets"
+    if sites_assets.exists() and not (bench_assets / "assets.json").exists():
+        if bench_assets.exists() or bench_assets.is_symlink():
+            if bench_assets.is_symlink():
+                try:
+                    bench_assets.unlink()
+                except OSError:
+                    pass
+            elif bench_assets.is_dir():
+                import shutil
+                shutil.rmtree(bench_assets)
+            else:
+                bench_assets.unlink()
+        if not bench_assets.exists():
+            try:
+                bench_assets.symlink_to(sites_assets, target_is_directory=True)
+            except OSError:
+                import shutil
+                shutil.copytree(sites_assets, bench_assets, dirs_exist_ok=True)
+
     import frappe.app
     frappe.app._site = site_name()
     frappe.app._sites_path = str(sites_path())

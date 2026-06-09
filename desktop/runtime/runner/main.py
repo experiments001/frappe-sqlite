@@ -1,4 +1,5 @@
 import argparse
+import sys
 import threading
 import time
 import webbrowser
@@ -9,9 +10,20 @@ from server import DEFAULT_HOST, find_free_port, serve
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Frappe SQLite Desktop Runtime")
+    subparsers = parser.add_subparsers(dest="command", required=False)
+    subparsers.add_parser("lifecycle", help="Lifecycle operations")
+
     parser.add_argument("--no-browser", action="store_true")
     parser.add_argument("--port", type=int, default=None)
     parser.add_argument("--migrate-only", action="store_true")
+
+    # Fast-path for lifecycle to let it handle its own argument parsing
+    # (including nested --help) without argparse intercepting flags.
+    if len(sys.argv) > 1 and sys.argv[1] == "lifecycle":
+        import lifecycle_cli
+
+        sys.exit(lifecycle_cli.run_lifecycle(sys.argv[2:]))
+
     args = parser.parse_args()
 
     run_migrations_if_needed()
