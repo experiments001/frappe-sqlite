@@ -15,19 +15,34 @@ import time
 
 
 def _setup_paths():
-    """Configure sys.path so frappe/ and shims are importable."""
-    # This file: poc/src/frappe_ios/app.py
-    # src/ dir:  poc/src/
-    # shims/:    poc/src/shims/
-    # frappe/:   repo_root/frappe/
-    # runtime/:  repo_root/mobile/ios/runtime/
-
+    """Configure sys.path so frappe/ and shims are importable.
+    
+    Handles both dev layout (repo checkout) and bundled app layout.
+    """
     app_file = os.path.abspath(__file__)
-    src_dir = os.path.dirname(os.path.dirname(app_file))  # poc/src/
-    poc_dir = os.path.dirname(src_dir)                      # poc/
-    ios_dir = os.path.dirname(poc_dir)                      # mobile/ios/
-    mobile_dir = os.path.dirname(ios_dir)                   # mobile/
-    repo_root = os.path.dirname(mobile_dir)                 # repo root
+    # In dev:  .../poc/src/frappe_ios/app.py
+    # In bundle: .../FrappeSQLite.app/app/frappe_ios/app.py
+    app_dir = os.path.dirname(app_file)          # .../frappe_ios/
+    pkg_dir = os.path.dirname(app_dir)           # .../app/  (bundle) or .../src/ (dev)
+    
+    # Detect bundle layout: frappe/ and runtime/ sit next to frappe_ios/
+    bundle_frappe = os.path.join(pkg_dir, "frappe")
+    bundle_runtime = os.path.join(pkg_dir, "runtime")
+    bundle_shims = os.path.join(pkg_dir, "shims")
+    
+    if os.path.isdir(bundle_frappe) and os.path.isdir(bundle_runtime):
+        # Bundled app layout
+        sys.path.insert(0, bundle_shims)
+        sys.path.insert(0, bundle_frappe)
+        sys.path.insert(0, bundle_runtime)
+        return pkg_dir  # app bundle root
+    
+    # Dev layout: compute repo root from poc/src/frappe_ios/app.py
+    src_dir = pkg_dir                                # poc/src/
+    poc_dir = os.path.dirname(src_dir)               # poc/
+    ios_dir = os.path.dirname(poc_dir)               # mobile/ios/
+    mobile_dir = os.path.dirname(ios_dir)            # mobile/
+    repo_root = os.path.dirname(mobile_dir)          # repo root
 
     # Add shims first (so they shadow real packages)
     shims_path = os.path.join(src_dir, "shims")
@@ -77,8 +92,8 @@ def main():
 
     # Keep app alive — Briefcase/Toga event loop
     print("[FrappeSQLite] Server thread started. Keeping app alive...")
-    while True:
-        time.sleep(1)
+    # Return control to native UIApplicationMain so WKWebView can display.
+    # The server thread is already running in the background.
 
 
 # Toga/Briefcase app class (used if template is Toga)
