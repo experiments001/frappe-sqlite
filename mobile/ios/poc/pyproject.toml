@@ -1,0 +1,89 @@
+[build-system]
+requires = ["briefcase"]
+
+[project]
+name = "frappe-ios"
+version = "0.1.0"
+description = "Frappe SQLite iOS App"
+authors = [
+    { name = "Frappe Technologies", email = "developers@frappe.io" }
+]
+license = "MIT"
+license-files = ["LICENSE"]
+requires-python = ">=3.13,<3.14"
+
+[tool.briefcase]
+project_name = "FrappeSQLite"
+bundle = "com.frappe.sqlite-ios"
+version = "0.1.0"
+url = "https://frappe.io"
+author = "Frappe Technologies"
+author_email = "developers@frappe.io"
+
+[tool.briefcase.app.frappe_ios]
+formal_name = "FrappeSQLite"
+description = "Frappe SQLite iOS App"
+icon = "resources/frappesqlite"
+# Source paths: our app code + shims + frappe core
+sources = ["src/frappe_ios", "src/shims"]
+
+# Requirements — trimmed runtime set (see scripts/requirements.txt)
+requires = [
+    "Babel~=2.16.0",
+    "Click~=8.3.1",
+    "filelock~=3.20.1",
+    "filetype~=1.2.0",
+    "GitPython~=3.1.45",
+    "Jinja2~=3.1.6",
+    "PyJWT~=2.12.1",
+    "PyMySQL==1.1.2",
+    "pypdf==6.10.2",
+    "PyYAML~=6.0.3",
+    "RestrictedPython~=8.1",
+    "Werkzeug==3.1.6",
+    "Whoosh~=2.7.4",
+    "beautifulsoup4~=4.13.5",
+    "bleach~=6.3.0",
+    "bleach-allowlist~=1.0.3",
+    "chardet~=5.2.0",
+    "croniter~=6.0.0",
+    "cssutils~=2.11.1",
+    "email-reply-parser~=0.5.12",
+    "html5lib~=1.1",
+    "markdown2~=2.5.4",
+    "num2words~=0.5.14",
+    "oauthlib~=3.3.1",
+    "passlib~=1.7.4",
+    "phonenumbers~=9.0.21",
+    "premailer~=3.10.0",
+    "pydantic~=2.12.5",
+    "pyotp~=2.9.0",
+    "python-dateutil~=2.9.0.post0",
+    "pytz==2025.2",
+    "rauth~=0.7.3",
+    "requests-oauthlib~=2.0.0",
+    "requests~=2.33.0",
+    "rsa~=4.9.1",
+    "semantic-version~=2.10.0",
+    "sqlparse~=0.5.5",
+    "sql_metadata~=2.19.0",
+    "tenacity~=9.1.2",
+    "terminaltables~=3.1.10",
+    "traceback-with-variables~=2.2.1",
+    "typing_extensions>=4.15.0,<5",
+    "zxcvbn~=4.5.0",
+    "markdownify~=1.2.2",
+    "openpyxl~=3.1.5",
+    "xlsxwriter~=3.2.9",
+    "xlrd~=2.0.2",
+]
+
+# Use our pre-downloaded Python-Apple-support instead of downloading
+[tool.briefcase.app.frappe_ios.iOS]
+supported = true
+support_package = "../vendor/Python-3.13-iOS-support.b13.tar.gz"
+
+# Add local wheelhouse for packages Briefcase can't resolve from PyPI
+wheel = [
+    "../vendor/wheelhouse",
+]

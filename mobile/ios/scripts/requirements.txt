@@ -1,0 +1,81 @@
+# iOS Runtime Requirements — trimmed from pyproject.toml
+# Dropped: gunicorn, ipython, pytest/mypy types, watchdog, pyngrok, responses, coverage, etc.
+# Dropped: psycopg2-binary (PostgreSQL), mysqlclient (MariaDB — NO_MARIADB=1)
+# Dropped: redis, hiredis, rq (NO_REDIS=1 — stubbed)
+# Dropped: WeasyPrint + pydyf (heavy C deps, PDF rendering not critical for PoC)
+# Dropped: Pillow (stubbed — image processing not critical for PoC)
+# Dropped: orjson (stubbed)
+# Dropped: nh3 (stubbed)
+# Dropped: psutil (stubbed)
+# Dropped: ldap3 (auth not critical for PoC)
+# Dropped: sentry-sdk (error reporting not critical for PoC)
+# Dropped: pyngrok, pdfkit (not needed on device)
+# Dropped: vobject (calendar integration not critical)
+# Dropped: google-* packages (Google integration not critical for PoC)
+# Dropped: posthog (analytics not critical)
+# Dropped: websockets (realtime not critical, NO_REDIS=1)
+# Dropped: openpyxl, xlsxwriter, xlrd (Excel I/O not critical for PoC)
+# Note: kept openpyxl/xlsxwriter/xlrd because Frappe imports them at startup
+
+# Core framework (pure Python or have iOS wheels)
+Babel~=2.16.0
+Click~=8.3.1
+filelock~=3.20.1
+filetype~=1.2.0
+GitPython~=3.1.45
+Jinja2~=3.1.6
+PyJWT~=2.12.1
+PyMySQL==1.1.2
+pypdf==6.10.2
+PyQRCode~=1.2.1
+PyYAML~=6.0.3
+RestrictedPython~=8.1
+Werkzeug==3.1.6
+Whoosh~=2.7.4
+beautifulsoup4~=4.13.5
+bleach~=6.3.0
+bleach-allowlist~=1.0.3
+chardet~=5.2.0
+croniter~=6.0.0
+cssutils~=2.11.1
+email-reply-parser~=0.5.12
+html5lib~=1.1
+markdown2~=2.5.4
+num2words~=0.5.14
+oauthlib~=3.3.1
+passlib~=1.7.4
+phonenumbers~=9.0.21
+premailer~=3.10.0
+pydantic~=2.12.5
+pyotp~=2.9.0
+python-dateutil~=2.9.0.post0
+pytz==2025.2
+rauth~=0.7.3
+requests-oauthlib~=2.0.0
+requests~=2.33.0
+rsa~=4.9.1
+semantic-version~=2.10.0
+sqlparse~=0.5.5
+sql_metadata~=2.19.0
+tenacity~=9.1.2
+terminaltables~=3.1.10
+traceback-with-variables~=2.2.1
+typing_extensions>=4.15.0,<5
+zxcvbn~=4.5.0
+markdownify~=1.2.2
+
+# Data / Excel (Frappe imports these eagerly)
+openpyxl~=3.1.5
+xlsxwriter~=3.2.9
+xlrd~=2.0.2
+
+# PDF (lightweight — pypdf already included)
+# WeasyPrint dropped (heavy deps: pydyf, Pango, cairo)
+
+# Image processing (Pillow stubbed — see shims/)
+# Pillow dropped — pure-Python shim provided
+
+# Queue / Redis (stubbed — see shims/)
+# redis, hiredis, rq dropped
+
+# iOS stubs will be provided for: orjson, nh3, psutil, redis, rq, PIL
