@@ -29,6 +29,18 @@ if [[ ! -d "$SEED_SOURCE/sqliteonly.localhost" ]]; then
 fi
 
 cp -R "$SEED_SOURCE/sqliteonly.localhost" desktop/runtime/resources/seed_site/sites/sqliteonly.localhost
+
+# Ensure the bundled seed site never ships in maintenance mode.
+python3 - <<'PY'
+import json, pathlib
+config = pathlib.Path("desktop/runtime/resources/seed_site/sites/sqliteonly.localhost/site_config.json")
+if config.exists():
+    data = json.loads(config.read_text())
+    data["maintenance_mode"] = 0
+    config.write_text(json.dumps(data, indent=1) + "\n")
+    print("Reset maintenance_mode to 0 in bundled seed site config")
+PY
+
 [[ -f "$SEED_SOURCE/common_site_config.json" ]] && cp "$SEED_SOURCE/common_site_config.json" desktop/runtime/resources/seed_site/sites/common_site_config.json
 [[ -f "$SEED_SOURCE/apps.txt" ]] && cp "$SEED_SOURCE/apps.txt" desktop/runtime/resources/seed_site/sites/apps.txt
 if [[ -d "$SEED_SOURCE/assets" ]]; then
